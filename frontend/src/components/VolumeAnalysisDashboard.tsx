@@ -900,6 +900,8 @@ export const VolumeAnalysisDashboard: React.FC = () => {
                             strokeWidth={3}
                             dot={{ r: 5, fill: "#38bdf8" }}
                             activeDot={{ r: 8, stroke: "#7dd3fc", strokeWidth: 2 }}
+                            animationDuration={450}
+                            animationEasing="ease-out"
                           />
                           <Line
                             type="monotone"
@@ -909,6 +911,8 @@ export const VolumeAnalysisDashboard: React.FC = () => {
                             strokeWidth={3}
                             dot={{ r: 5, fill: "#10b981" }}
                             activeDot={{ r: 8, stroke: "#34d399", strokeWidth: 2 }}
+                            animationDuration={450}
+                            animationEasing="ease-out"
                           />
                         </LineChart>
                       </ResponsiveContainer>
@@ -985,6 +989,8 @@ export const VolumeAnalysisDashboard: React.FC = () => {
                             strokeWidth={3}
                             dot={{ r: 5, fill: "#38bdf8" }}
                             activeDot={{ r: 8, stroke: "#7dd3fc", strokeWidth: 2 }}
+                            animationDuration={450}
+                            animationEasing="ease-out"
                           />
                           <Line
                             type="monotone"
@@ -994,6 +1000,8 @@ export const VolumeAnalysisDashboard: React.FC = () => {
                             strokeWidth={3}
                             dot={{ r: 5, fill: "#10b981" }}
                             activeDot={{ r: 8, stroke: "#34d399", strokeWidth: 2 }}
+                            animationDuration={450}
+                            animationEasing="ease-out"
                           />
                         </LineChart>
                       </ResponsiveContainer>
@@ -1070,6 +1078,8 @@ export const VolumeAnalysisDashboard: React.FC = () => {
                             strokeWidth={3}
                             dot={{ r: 5, fill: "#38bdf8" }}
                             activeDot={{ r: 8, stroke: "#7dd3fc", strokeWidth: 2 }}
+                            animationDuration={450}
+                            animationEasing="ease-out"
                           />
                           <Line
                             type="monotone"
@@ -1079,6 +1089,8 @@ export const VolumeAnalysisDashboard: React.FC = () => {
                             strokeWidth={3}
                             dot={{ r: 5, fill: "#10b981" }}
                             activeDot={{ r: 8, stroke: "#34d399", strokeWidth: 2 }}
+                            animationDuration={450}
+                            animationEasing="ease-out"
                           />
                         </LineChart>
                       </ResponsiveContainer>

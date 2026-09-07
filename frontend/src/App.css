@@ -69,6 +69,9 @@
   --muted-foreground: 236 15% 45%;
   --accent: 8 86% 65%;
   --accent-foreground: 0 0% 100%;
+  --accent-blue: hsl(220 85% 45%);
+  --accent-green: hsl(142 71% 35%);
+  --accent-yellow: hsl(35 90% 40%);
   --shadow-glow: 0 0 54px rgba(79, 75, 207, 0.12);
 }
 
