@@ -428,19 +428,21 @@ body {
 .canvas-wrapper {
   flex: 1;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  align-items: stretch;
+  justify-content: stretch;
   background: var(--bg-primary);
   overflow: hidden;
   padding: 12px;
+  min-height: 0;
+  min-width: 0;
 }
 
 .canvas-wrapper canvas {
-  max-width: 100%;
-  max-height: 100%;
-  object-fit: contain;
+  width: 100% !important;
+  height: 100% !important;
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-lg);
+  display: block;
 }
 
 /* ── Metrics Sidebar ─────────────────────────────────────────────────────── */
@@ -867,11 +869,20 @@ body {
   letter-spacing: 0.3px;
 }
 
-.comparison-column .canvas-wrapper {
-  flex: 1.2; /* prioritize space for canvas */
+.comparison-column {
+  flex: 1;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.comparison-column .canvas-wrapper {
+  flex: 1;
+  display: flex;
+  align-items: stretch;
+  justify-content: stretch;
   background: var(--bg-primary);
   min-height: 0;
   padding: 10px;
