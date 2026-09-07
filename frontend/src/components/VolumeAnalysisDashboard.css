@@ -1315,6 +1315,40 @@
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
 }
 
+.chart-option-pills {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  background: hsl(var(--muted) / 0.4);
+  padding: 3px;
+  border-radius: 8px;
+  border: 1px solid hsl(var(--border) / 0.5);
+}
+
+.option-pill-btn {
+  background: transparent;
+  border: none;
+  color: hsl(var(--muted-foreground));
+  border-radius: 5px;
+  padding: 5px 10px;
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.option-pill-btn:hover {
+  color: hsl(var(--foreground));
+}
+
+.option-pill-btn.active {
+  background: hsl(var(--card));
+  color: hsl(var(--primary));
+  font-weight: 700;
+  border: 1px solid hsl(var(--primary) / 0.35);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
 /* ── Charts Grid ─────────────────────────────────────────────────────────── */
 
 .charts-grid {
@@ -1960,6 +1994,21 @@
 .light .axis-pill-btn.active {
   background: var(--bg-card);
   color: var(--text-primary);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+.light .chart-option-pills {
+  background: var(--bg-tertiary);
+  border-color: var(--border-color);
+}
+.light .option-pill-btn {
+  color: var(--text-secondary);
+}
+.light .option-pill-btn:hover {
+  color: var(--text-primary);
+}
+.light .option-pill-btn.active {
+  background: var(--bg-card);
+  color: hsl(var(--primary));
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 .light .chart-card-mini-header {
