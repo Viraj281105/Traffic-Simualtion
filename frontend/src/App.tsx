@@ -483,27 +483,29 @@ export function App() {
       </header>
 
       {/* ── Quick Display Toggles & Status Bar ────────────────────────── */}
-      <div className="quick-toggles-bar">
-        <ConfigToggle
-          label="Stop Lines"
-          value={showStopLines}
-          onChange={setShowStopLines}
-        />
-        <ConfigToggle label="Debug Queues" value={debug} onChange={setDebug} />
-        <div className="quick-seed-group">
-          <span className="seed-badge" title="Active Random Seed">
-            🎲 Seed: <strong>{randomSeed}</strong>
-          </span>
-          <button
-            type="button"
-            className="pb-btn pb-secondary re-roll-btn"
-            onClick={randomizeSeed}
-            title="Roll new random seed"
-          >
-            Re-roll
-          </button>
+      {viewMode !== "volume" && viewMode !== "validation" && viewMode !== "history" && (
+        <div className="quick-toggles-bar">
+          <ConfigToggle
+            label="Stop Lines"
+            value={showStopLines}
+            onChange={setShowStopLines}
+          />
+          <ConfigToggle label="Debug Queues" value={debug} onChange={setDebug} />
+          <div className="quick-seed-group">
+            <span className="seed-badge" title="Active Random Seed">
+              🎲 Seed: <strong>{randomSeed}</strong>
+            </span>
+            <button
+              type="button"
+              className="pb-btn pb-secondary re-roll-btn"
+              onClick={randomizeSeed}
+              title="Roll new random seed"
+            >
+              Re-roll
+            </button>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* ── Interactive Configuration Sidebar ────────────────────────── */}
       <ConfigurationSidebar

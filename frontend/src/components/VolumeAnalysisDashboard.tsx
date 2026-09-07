@@ -75,9 +75,9 @@ function getHCMLevelOfService(delaySeconds: number): LOSInfo {
     return { grade: "D", label: "Approaching Capacity", color: "#f97316", bg: "rgba(249, 115, 22, 0.15)" };
   }
   if (delaySeconds <= 80) {
-    return { grade: "E", label: "Unstable / At Capacity", color: "#ef4444", bg: "rgba(239, 68, 68, 0.15)" };
+    return { grade: "E", label: "At Capacity", color: "#ef4444", bg: "rgba(239, 68, 68, 0.15)" };
   }
-  return { grade: "F", label: "Breakdown / Gridlock", color: "#f43f5e", bg: "rgba(244, 63, 94, 0.2)" };
+  return { grade: "F", label: "Gridlock", color: "#f43f5e", bg: "rgba(244, 63, 94, 0.2)" };
 }
 
 // ── Chart data builder ──────────────────────────────────────────────────────
@@ -203,8 +203,6 @@ export const VolumeAnalysisDashboard: React.FC = () => {
     fetchSweeps();
   }, [fetchSweeps]);
 
-
-
   // Load a specific sweep session
   const loadSweep = (id: string) => {
     setSelectedId(id);
@@ -215,6 +213,7 @@ export const VolumeAnalysisDashboard: React.FC = () => {
         setActiveSession(data);
         setScrubberVolumeOverride(null);
         setLoadingSession(false);
+        setShowConfigDrawer(false);
       })
       .catch(() => {
         setLoadingSession(false);
@@ -244,6 +243,7 @@ export const VolumeAnalysisDashboard: React.FC = () => {
         setSelectedId(data.sessionId);
         setScrubberVolumeOverride(null);
         setIsRunning(false);
+        setShowConfigDrawer(false);
         fetchSweeps();
       })
       .catch((e: unknown) => {
@@ -364,11 +364,11 @@ export const VolumeAnalysisDashboard: React.FC = () => {
         <div className="header-title-group">
           <div className="header-badge-row">
             <span className="header-mini-chip">Capacity Analysis Studio</span>
-            <span className="header-version-chip">HCM 6th Ed. Compliant</span>
+            <span className="header-version-chip">HCM 6th Ed.</span>
           </div>
           <h2>📈 Traffic Volume & Capacity Curve Analysis</h2>
           <p className="header-subtitle">
-            Parametric sensitivity study comparing Signalized Intersections vs. Modern Roundabouts across systematic volume tiers (360 to 11,520+ veh/h).
+            Systematic sensitivity study comparing Fixed-Time Signals vs. Modern Roundabouts across demand tiers.
           </p>
         </div>
 
@@ -379,8 +379,9 @@ export const VolumeAnalysisDashboard: React.FC = () => {
             onClick={() => {
               setShowConfigDrawer((prev) => !prev);
             }}
+            title="Configure duration, random seed, or load past sweep history"
           >
-            ⚙️ {showConfigDrawer ? "Hide Controls" : "Configure & History"}
+            ⚙️ Experiment Controls & History ({savedSweeps.length.toString()})
           </button>
           {activeSession && (
             <button
@@ -395,7 +396,7 @@ export const VolumeAnalysisDashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* ── Sweep Experiment Control Bar (Collapsible / Executive) ──── */}
+      {/* ── Sweep Settings & History Panel (Inline or Modal Drawer) ── */}
       <div className={`sweep-top-controls-grid ${showConfigDrawer || !activeSession ? "open" : "collapsed"}`}>
         {/* Sweep Trigger Panel */}
         <div className="sweep-trigger-panel">
@@ -457,7 +458,7 @@ export const VolumeAnalysisDashboard: React.FC = () => {
                   setSweepDuration(30);
                 }}
               >
-                ⚡ Quick (30s)
+                ⚡ 30s
               </button>
               <button
                 type="button"
@@ -466,7 +467,7 @@ export const VolumeAnalysisDashboard: React.FC = () => {
                   setSweepDuration(60);
                 }}
               >
-                ⚖️ Standard (60s)
+                ⚖️ 60s
               </button>
               <button
                 type="button"
@@ -475,7 +476,7 @@ export const VolumeAnalysisDashboard: React.FC = () => {
                   setSweepDuration(120);
                 }}
               >
-                🔬 Rigorous (120s)
+                🔬 120s
               </button>
             </div>
 
@@ -584,7 +585,7 @@ export const VolumeAnalysisDashboard: React.FC = () => {
               <span
                 className="kpi-value"
                 style={{
-                  color: roundaboutWins >= signalWins ? "#10b981" : "#3b82f6",
+                  color: roundaboutWins >= signalWins ? "#10b981" : "#38bdf8",
                 }}
               >
                 {roundaboutWins > signalWins
@@ -631,38 +632,41 @@ export const VolumeAnalysisDashboard: React.FC = () => {
             </div>
           </div>
 
-          {/* Crossover Status Banner */}
+          {/* Compact High-Impact Crossover Banner */}
           {crossover ? (
             <div className="crossover-badge">
-              <div className="crossover-badge-glow" />
-              <span className="crossover-icon">⭐</span>
-              <div className="crossover-text">
-                <div className="crossover-title-row">
-                  <strong>Critical Saturation Crossover: {crossover.toLocaleString()} veh/h</strong>
-                  <span className="crossover-pill">Phase Transition Zone</span>
+              <div className="crossover-compact-bar">
+                <div className="crossover-compact-left">
+                  <span className="crossover-sparkle">⭐</span>
+                  <span className="crossover-text">
+                    <strong>Critical Saturation Crossover: {crossover.toLocaleString()} veh/h</strong>
+                  </span>
+                  <span className="crossover-pill">Phase Transition</span>
                 </div>
-                <div className="crossover-subtext-grid">
-                  <div className="crossover-zone zone-left">
-                    <span className="zone-tag tag-green">Below {crossover.toLocaleString()} veh/h</span>
-                    <span>Modern Roundabout offers up to 50% lower vehicular delay without signal stop penalties.</span>
-                  </div>
-                  <div className="crossover-zone zone-right">
-                    <span className="zone-tag tag-blue">Above {crossover.toLocaleString()} veh/h</span>
-                    <span>Circulating traffic saturates ring entries; Fixed-Time Signal guarantees cycle fairness & lane progression.</span>
-                  </div>
+                <div className="crossover-compact-right">
+                  <span className="crossover-tag tag-green">
+                    &lt; {crossover.toLocaleString()} veh/h: Roundabout Advantage
+                  </span>
+                  <span className="crossover-tag tag-blue">
+                    &gt; {crossover.toLocaleString()} veh/h: Signal Progress Stability
+                  </span>
                 </div>
               </div>
             </div>
           ) : (
             <div className="crossover-badge dominated-badge">
-              <span className="crossover-icon">🔄</span>
-              <div className="crossover-text">
-                <strong style={{ color: "#10b981" }}>
-                  Roundabout Dominates All Evaluated Volume Brackets
-                </strong>
-                <p style={{ margin: "2px 0 0", fontSize: "12px", color: "#94a3b8" }}>
-                  No saturation crossover detected in the tested range. Roundabout maintained superior delay efficiency across all evaluated arrival rates.
-                </p>
+              <div className="crossover-compact-bar">
+                <div className="crossover-compact-left">
+                  <span className="crossover-sparkle">🔄</span>
+                  <span className="crossover-text">
+                    <strong style={{ color: "#10b981" }}>
+                      Roundabout Dominates All Evaluated Volume Brackets
+                    </strong>
+                  </span>
+                </div>
+                <span className="crossover-tag tag-green">
+                  Lower Delay Maintained Across All Rates
+                </span>
               </div>
             </div>
           )}
@@ -703,13 +707,13 @@ export const VolumeAnalysisDashboard: React.FC = () => {
             <div className="volume-scrubber-card">
               <div className="scrubber-header">
                 <div className="scrubber-title-group">
-                  <span className="scrubber-title">🎛️ Interactive Volume Explorer & Instant Verdict</span>
+                  <span className="scrubber-title">🎛️ Interactive Demand Explorer</span>
                   <span className="scrubber-subtitle">
-                    Drag the volume slider to inspect predicted delay, Level of Service (LOS), and advantage in real time.
+                    Scrub volume to inspect dynamic delay, HCM Level of Service, and winning advantage.
                   </span>
                 </div>
                 <div className="scrubber-winner-pill">
-                  <span className="pill-prefix">Advantage:</span>
+                  <span className="pill-prefix">Verdict:</span>
                   <span className={`pill-winner-name winner-${currentScrubberRun.winner}`}>
                     {currentScrubberRun.winner === "roundabout"
                       ? "🔄 Roundabout"
@@ -754,7 +758,7 @@ export const VolumeAnalysisDashboard: React.FC = () => {
               <div className="scrubber-hud-grid">
                 {/* Active Volume */}
                 <div className="hud-metric-box">
-                  <span className="hud-box-label">Current Demand Tier</span>
+                  <span className="hud-box-label">Current Demand</span>
                   <div className="hud-box-value-row">
                     <span className="hud-box-value highlight-cyan">
                       {currentScrubberRun.hourlyVolumeVehPerHour.toLocaleString()}
@@ -810,7 +814,7 @@ export const VolumeAnalysisDashboard: React.FC = () => {
 
                 {/* Delta / Verdict */}
                 <div className="hud-metric-box delta-theme">
-                  <span className="hud-box-label">Delay Efficiency Margin</span>
+                  <span className="hud-box-label">Delay Margin</span>
                   <div className="hud-box-value-row">
                     <span
                       className="hud-box-value"
@@ -913,18 +917,18 @@ export const VolumeAnalysisDashboard: React.FC = () => {
                     <div className="chart-card-header">
                       <div>
                         <h4>Average Delay vs. Traffic Volume</h4>
-                        <span className="chart-subtitle">Direct comparison of vehicular control delay</span>
+                        <span className="chart-subtitle">Vehicular control delay across volume tiers</span>
                       </div>
-                      <span className="chart-metric-unit">Seconds / Vehicle</span>
+                      <span className="chart-metric-unit">s / vehicle</span>
                     </div>
                     {chartData.length > 0 ? (
                       <ResponsiveContainer
                         width="100%"
-                        height={metricView === "all" ? 240 : 360}
+                        height={metricView === "all" ? 270 : 380}
                       >
                         <LineChart
                           data={chartData}
-                          margin={{ top: 12, right: 20, bottom: 8, left: 0 }}
+                          margin={{ top: 12, right: 24, bottom: 8, left: 4 }}
                         >
                           <CartesianGrid
                             strokeDasharray="3 3"
@@ -932,17 +936,17 @@ export const VolumeAnalysisDashboard: React.FC = () => {
                           />
                           <XAxis
                             dataKey={xDataKey}
-                            tick={{ fontSize: 11, fill: "#94a3b8" }}
+                            tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
                             tickFormatter={(v: number) => v.toString()}
                             label={{
                               value: xAxisMode === "volume" ? "veh/h" : "veh/s",
                               position: "insideBottom",
                               offset: -4,
-                              fill: "#94a3b8",
+                              fill: "hsl(var(--muted-foreground))",
                               fontSize: 11,
                             }}
                           />
-                          <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} />
+                          <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
                           <Tooltip
                             content={<CustomTooltip unit="s" xMode={xAxisMode} />}
                           />
@@ -965,10 +969,10 @@ export const VolumeAnalysisDashboard: React.FC = () => {
                             type="monotone"
                             dataKey="signalDelay"
                             name="Fixed-Time Signal"
-                            stroke="#3b82f6"
+                            stroke="#38bdf8"
                             strokeWidth={2.8}
-                            dot={{ r: 4, fill: "#3b82f6" }}
-                            activeDot={{ r: 7, stroke: "#60a5fa", strokeWidth: 2 }}
+                            dot={{ r: 4, fill: "#38bdf8" }}
+                            activeDot={{ r: 7, stroke: "#7dd3fc", strokeWidth: 2 }}
                           />
                           <Line
                             type="monotone"
@@ -993,18 +997,18 @@ export const VolumeAnalysisDashboard: React.FC = () => {
                     <div className="chart-card-header">
                       <div>
                         <h4>Throughput vs. Traffic Volume</h4>
-                        <span className="chart-subtitle">Vehicles successfully processed during simulation window</span>
+                        <span className="chart-subtitle">Vehicles processed during simulation window</span>
                       </div>
                       <span className="chart-metric-unit">Completed Vehicles</span>
                     </div>
                     {chartData.length > 0 ? (
                       <ResponsiveContainer
                         width="100%"
-                        height={metricView === "all" ? 240 : 360}
+                        height={metricView === "all" ? 270 : 380}
                       >
                         <LineChart
                           data={chartData}
-                          margin={{ top: 12, right: 20, bottom: 8, left: 0 }}
+                          margin={{ top: 12, right: 24, bottom: 8, left: 4 }}
                         >
                           <CartesianGrid
                             strokeDasharray="3 3"
@@ -1012,17 +1016,17 @@ export const VolumeAnalysisDashboard: React.FC = () => {
                           />
                           <XAxis
                             dataKey={xDataKey}
-                            tick={{ fontSize: 11, fill: "#94a3b8" }}
+                            tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
                             tickFormatter={(v: number) => v.toString()}
                             label={{
                               value: xAxisMode === "volume" ? "veh/h" : "veh/s",
                               position: "insideBottom",
                               offset: -4,
-                              fill: "#94a3b8",
+                              fill: "hsl(var(--muted-foreground))",
                               fontSize: 11,
                             }}
                           />
-                          <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} />
+                          <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
                           <Tooltip
                             content={
                               <CustomTooltip unit=" veh" xMode={xAxisMode} />
@@ -1041,10 +1045,10 @@ export const VolumeAnalysisDashboard: React.FC = () => {
                             type="monotone"
                             dataKey="signalThroughput"
                             name="Fixed-Time Signal"
-                            stroke="#3b82f6"
+                            stroke="#38bdf8"
                             strokeWidth={2.8}
-                            dot={{ r: 4, fill: "#3b82f6" }}
-                            activeDot={{ r: 7, stroke: "#60a5fa", strokeWidth: 2 }}
+                            dot={{ r: 4, fill: "#38bdf8" }}
+                            activeDot={{ r: 7, stroke: "#7dd3fc", strokeWidth: 2 }}
                           />
                           <Line
                             type="monotone"
@@ -1076,11 +1080,11 @@ export const VolumeAnalysisDashboard: React.FC = () => {
                     {chartData.length > 0 ? (
                       <ResponsiveContainer
                         width="100%"
-                        height={metricView === "all" ? 240 : 360}
+                        height={metricView === "all" ? 270 : 380}
                       >
                         <LineChart
                           data={chartData}
-                          margin={{ top: 12, right: 20, bottom: 8, left: 0 }}
+                          margin={{ top: 12, right: 24, bottom: 8, left: 4 }}
                         >
                           <CartesianGrid
                             strokeDasharray="3 3"
@@ -1088,17 +1092,17 @@ export const VolumeAnalysisDashboard: React.FC = () => {
                           />
                           <XAxis
                             dataKey={xDataKey}
-                            tick={{ fontSize: 11, fill: "#94a3b8" }}
+                            tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
                             tickFormatter={(v: number) => v.toString()}
                             label={{
                               value: xAxisMode === "volume" ? "veh/h" : "veh/s",
                               position: "insideBottom",
                               offset: -4,
-                              fill: "#94a3b8",
+                              fill: "hsl(var(--muted-foreground))",
                               fontSize: 11,
                             }}
                           />
-                          <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} />
+                          <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
                           <Tooltip
                             content={
                               <CustomTooltip unit=" veh" xMode={xAxisMode} />
@@ -1117,10 +1121,10 @@ export const VolumeAnalysisDashboard: React.FC = () => {
                             type="monotone"
                             dataKey="signalQueue"
                             name="Fixed-Time Signal"
-                            stroke="#3b82f6"
+                            stroke="#38bdf8"
                             strokeWidth={2.8}
-                            dot={{ r: 4, fill: "#3b82f6" }}
-                            activeDot={{ r: 7, stroke: "#60a5fa", strokeWidth: 2 }}
+                            dot={{ r: 4, fill: "#38bdf8" }}
+                            activeDot={{ r: 7, stroke: "#7dd3fc", strokeWidth: 2 }}
                           />
                           <Line
                             type="monotone"
@@ -1148,10 +1152,10 @@ export const VolumeAnalysisDashboard: React.FC = () => {
               <div className="table-header-controls">
                 <div>
                   <h4>Volume Sweep Results: {activeSession.name}</h4>
-                  <p className="table-subtitle">Detailed telemetry data with side-by-side comparative delay bars & HCM Level of Service</p>
+                  <p className="table-subtitle">Comparative telemetry data with side-by-side delay bars & HCM Level of Service</p>
                 </div>
                 <div className="table-filter-group">
-                  <span className="filter-label">Filter Winner:</span>
+                  <span className="filter-label">Filter:</span>
                   <button
                     type="button"
                     className={`table-filter-btn ${filterWinner === "all" ? "active" : ""}`}
