@@ -350,3 +350,95 @@
   background: rgba(255, 255, 255, 0.06);
   color: #ffffff;
 }
+
+/* ── LIGHT MODE OVERRIDES ────────────────────────────────────────────────── */
+.light .config-sidebar-panel {
+  background: var(--bg-secondary);
+  border-left: 1px solid var(--border-color);
+  box-shadow: -8px 0 32px rgba(0, 0, 0, 0.1);
+}
+.light .config-sidebar-header {
+  border-color: var(--border-color);
+  background: var(--bg-secondary);
+}
+.light .config-sidebar-title {
+  color: var(--text-primary);
+}
+.light .config-close-btn {
+  color: var(--text-secondary);
+}
+.light .config-close-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.light .config-presets-container {
+  background: rgba(88, 166, 255, 0.05);
+  border-color: rgba(88, 166, 255, 0.15);
+}
+.light .config-presets-label {
+  color: var(--text-secondary);
+}
+.light .config-preset-pill {
+  background: var(--bg-card);
+  border-color: var(--border-color);
+  color: var(--text-primary);
+}
+.light .config-preset-pill:hover {
+  background: rgba(88, 166, 255, 0.1);
+  border-color: var(--accent-blue);
+  color: var(--accent-blue);
+}
+.light .config-section {
+  background: var(--bg-card);
+  border-color: var(--border-color);
+}
+.light .config-control-header {
+  color: var(--text-primary);
+}
+.light .config-control-value {
+  background: rgba(88, 166, 255, 0.1);
+  color: var(--accent-blue);
+}
+.light .config-slider {
+  background: var(--bg-tertiary);
+}
+.light .config-seed-input {
+  background: var(--bg-card);
+  border-color: var(--border-color);
+  color: var(--text-primary);
+}
+.light .config-reroll-btn {
+  background: var(--bg-tertiary);
+  border-color: var(--border-color);
+  color: var(--text-secondary);
+}
+.light .config-reroll-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.light .config-sidebar-footer {
+  background: var(--bg-secondary);
+  border-color: var(--border-color);
+}
+.light .config-apply-btn {
+  background: hsl(130 60% 45%);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(46, 204, 64, 0.2);
+}
+.light .config-apply-btn:hover:not(:disabled) {
+  background: hsl(130 60% 40%);
+}
+.light .config-apply-btn:disabled {
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  border-color: var(--border-color);
+  box-shadow: none;
+}
+.light .config-reset-btn {
+  border-color: var(--border-color);
+  color: var(--text-secondary);
+}
+.light .config-reset-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
