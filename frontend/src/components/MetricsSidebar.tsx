@@ -20,8 +20,15 @@ const DIR_LABEL: Record<SignalDirection, string> = {
   west: "W",
 };
 
-function fmt(val: number | undefined, decimals = 1): string {
-  if (val === undefined) return "—";
+function fmt(val: number | null | undefined, decimals = 1): string {
+  if (
+    val === undefined ||
+    val === null ||
+    Number.isNaN(val) ||
+    !Number.isFinite(val)
+  ) {
+    return "—";
+  }
   return val.toFixed(decimals);
 }
 

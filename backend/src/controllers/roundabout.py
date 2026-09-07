@@ -125,9 +125,12 @@ class RoundaboutController(BaseController):
                             if angular_gap < math.pi:
                                 dist_along_circle = lane_radius * angular_gap
                                 if dist_along_circle < threshold:
-                                    time_gap = (
-                                        dist_along_circle / self.circulating_speed
+                                    eff_speed = (
+                                        max(cv.speed, 2.0)
+                                        if hasattr(cv, "speed") and cv.speed > 0
+                                        else self.circulating_speed
                                     )
+                                    time_gap = dist_along_circle / eff_speed
                                     if time_gap < self.critical_gap:
                                         should_yield = True
                                         break

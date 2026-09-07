@@ -107,14 +107,8 @@ class MetricCollector:
         post_warmup_exited = [
             v
             for v in exited_vehicles
-            if (
-                v.exit_time is not None
-                and v.exit_time >= self.warmup_time
-            )
-            or (
-                v.exit_time is None
-                and v.spawn_time >= self.warmup_time
-            )
+            if (v.exit_time is not None and v.exit_time >= self.warmup_time)
+            or (v.exit_time is None and v.spawn_time >= self.warmup_time)
         ]
 
         # Calculate current queue lengths
@@ -152,7 +146,9 @@ class MetricCollector:
             spawn_t = getattr(v, "spawn_time", 0.0)
             exit_t = getattr(v, "exit_time", None)
             if exit_t is not None and exit_t > spawn_t:
-                actual_travel_time = exit_t - spawn_t
+                effective_spawn_t = max(spawn_t, self.warmup_time)
+                actual_travel_time = max(0.0, exit_t - effective_spawn_t)
+                total_duration = exit_t - spawn_t
                 if getattr(v, "route", None):
                     route_len = sum(
                         lane.length for lane in v.route if hasattr(lane, "length")
@@ -160,6 +156,9 @@ class MetricCollector:
                     free_flow_time = route_len / max(
                         getattr(v, "desired_speed", 15.0), 1.0
                     )
+                    # If spawned during warmup, scale free-flow time to post-warmup duration fraction
+                    if spawn_t < self.warmup_time and total_duration > 0:
+                        free_flow_time *= actual_travel_time / total_duration
                 else:
                     free_flow_time = 0.0
                 delays.append(max(0.0, actual_travel_time - free_flow_time))
@@ -199,8 +198,11 @@ class MetricCollector:
             p95_delay = 0.0
             sd_delay = 0.0
 
-        # Compute total stops post-warmup
-        total_stops_exited = sum(v.stop_count for v in post_warmup_exited)
+        # Compute total stops post-warmup (excluding stops incurred during warmup)
+        total_stops_exited = max(
+            0,
+            sum(v.stop_count for v in post_warmup_exited) - self.total_stops_in_warmup,
+        )
 
         # Idle opportunity loss
         idle_loss = 0.0

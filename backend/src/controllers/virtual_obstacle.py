@@ -12,12 +12,17 @@ class VirtualObstacle:
     ``position``, ``speed``, ``length``, and ``vehicle_id``.
     """
 
-    __slots__ = ("position", "speed", "length", "vehicle_id")
+    __slots__ = ("position", "speed", "length", "vehicle_id", "is_yellow")
 
     def __init__(
-        self, position: float, speed: float = 0.0, length: float = 0.0
+        self,
+        position: float,
+        speed: float = 0.0,
+        length: float = 0.0,
+        is_yellow: bool = False,
     ) -> None:
         self.position = position
         self.speed = speed
         self.length = length
         self.vehicle_id = "virtual_stop_line"
+        self.is_yellow = is_yellow
