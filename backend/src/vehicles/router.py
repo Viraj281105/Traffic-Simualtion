@@ -135,8 +135,8 @@ def find_leader(
                 # Counter-clockwise angular distance from theta_self to theta_v
                 diff = (theta_v - theta_self) % (2 * math.pi)
 
-                # Only consider vehicles that are actually ahead of us (within 270 degrees)
-                if diff < 1.5 * math.pi:
+                # Only consider vehicles that are actually ahead of us in forward circular flow (within 180 degrees)
+                if 0.0 < diff <= math.pi:
                     arc_dist = avg_radius * diff
                     v_dist = dist_to_lane_start + arc_dist
 
@@ -162,13 +162,23 @@ def find_leader(
         # ── Layer 2: Virtual obstacles (signal stop-lines) ─────────────
         virtual_obs = getattr(lane, "virtual_obstacle", None)
         if virtual_obs is not None:
-            obs_dist = accumulated_dist + virtual_obs.position
-            if obs_dist > 0:
-                gap = obs_dist - (vehicle.length / 2.0 + virtual_obs.length / 2.0)
-                gap = max(0.0, gap)
-                if gap < best_gap:
-                    best_gap = gap
-                    best_leader = virtual_obs
+            # Check if this is a yellow clearance obstacle
+            is_yellow = getattr(virtual_obs, "is_yellow", False)
+            if is_yellow and i == curr_idx:
+                # Dilemma zone calculation: if vehicle cannot safely stop comfortably before line, permit clearance
+                stopping_dist = (vehicle.speed**2) / (2.0 * max(getattr(vehicle, "comfort_deceleration", 3.0), 1.0))
+                dist_to_line = max(0.0, virtual_obs.position - vehicle.position)
+                if dist_to_line <= stopping_dist + vehicle.length:
+                    virtual_obs = None
+
+            if virtual_obs is not None:
+                obs_dist = accumulated_dist + virtual_obs.position
+                if obs_dist > 0:
+                    gap = obs_dist - (vehicle.length / 2.0 + virtual_obs.length / 2.0)
+                    gap = max(0.0, gap)
+                    if gap < best_gap:
+                        best_gap = gap
+                        best_leader = virtual_obs
 
         # If we already found something on this lane, no need to look further
         if best_leader is not None and i == curr_idx:

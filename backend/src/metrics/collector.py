@@ -199,8 +199,11 @@ class MetricCollector:
             p95_delay = 0.0
             sd_delay = 0.0
 
-        # Compute total stops post-warmup
-        total_stops_exited = sum(v.stop_count for v in post_warmup_exited)
+        # Compute total stops post-warmup (excluding stops incurred during warmup)
+        total_stops_exited = max(
+            0,
+            sum(v.stop_count for v in post_warmup_exited) - self.total_stops_in_warmup,
+        )
 
         # Idle opportunity loss
         idle_loss = 0.0

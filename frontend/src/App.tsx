@@ -255,6 +255,7 @@ export function App() {
       : connectionStatus;
 
   const handlePlay = () => {
+    setActiveReplay(null);
     if (viewMode === "single") {
       singleStart().catch(() => {});
     } else {
@@ -579,6 +580,7 @@ export function App() {
                 <RoundaboutMap
                   snapshot={dualSnapshot?.roundabout ?? null}
                   laneWidth={laneWidth}
+                  lanes={lanesNorth}
                   showCrosswalks={false}
                   debug={debug}
                   width={600}
@@ -663,6 +665,7 @@ export function App() {
               <RoundaboutMap
                 snapshot={singleSnapshot}
                 laneWidth={laneWidth}
+                lanes={lanesNorth}
                 showCrosswalks={false}
                 debug={debug}
               />

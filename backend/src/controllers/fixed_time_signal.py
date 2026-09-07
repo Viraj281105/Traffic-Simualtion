@@ -240,19 +240,24 @@ class FixedTimeSignalController(BaseController):
             for lane_idx, lane in enumerate(lane_list):
                 lane_turns = self._lane_turn_intent(lane_idx, total_lanes)
 
-                # Determine if this lane should be green
+                # Determine if this lane should be green or yellow clearance
                 should_be_green = False
+                is_yellow_phase = False
 
-                if phase.color in ("green",) and phase.direction == d:
-                    # Check if any of this lane's turn intents are allowed
-                    if any(t in phase.allowed_turns for t in lane_turns):
+                if phase.direction == d and any(t in phase.allowed_turns for t in lane_turns):
+                    if phase.color == "green":
                         should_be_green = True
+                    elif phase.color == "yellow":
+                        is_yellow_phase = True
 
                 if should_be_green:
                     lane.virtual_obstacle = None
+                elif is_yellow_phase:
+                    # Allow dilemma zone clearance during yellow phase
+                    lane.virtual_obstacle = VirtualObstacle(position=lane.length, is_yellow=True)
                 else:
                     # Block the lane with a virtual obstacle at the stop line
-                    lane.virtual_obstacle = VirtualObstacle(position=lane.length)
+                    lane.virtual_obstacle = VirtualObstacle(position=lane.length, is_yellow=False)
 
     # ------------------------------------------------------------------
     # State snapshot (for the frontend / API)

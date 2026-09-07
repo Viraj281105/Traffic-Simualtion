@@ -6,6 +6,7 @@ interface RoundaboutMapProps {
   width?: number;
   height?: number;
   laneWidth?: number;
+  lanes?: number;
   showCrosswalks?: boolean;
   debug?: boolean;
 }
@@ -15,6 +16,7 @@ export const RoundaboutMap: React.FC<RoundaboutMapProps> = ({
   width = 800,
   height = 680,
   laneWidth = 3.5,
+  lanes = 2,
   showCrosswalks = true,
   debug = false,
 }) => {
@@ -82,7 +84,7 @@ export const RoundaboutMap: React.FC<RoundaboutMapProps> = ({
         ctx.stroke();
       }
 
-      const armWidth = laneWidth * 4;
+      const armWidth = laneWidth * (lanes * 2);
       ctx.fillStyle = "#343b42";
       fillWorldRect(
         ctx,

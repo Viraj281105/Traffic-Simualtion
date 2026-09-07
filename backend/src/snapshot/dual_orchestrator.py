@@ -140,7 +140,23 @@ class DualSimulationOrchestrator:
         self.engine_signal.stop()
         self.engine_roundabout.stop()
 
+    def step(self) -> None:
+        self.engine_signal.step()
+        self.engine_roundabout.step()
+
     def get_status(self) -> str:
+        from src.core.enums import SimulationStatus
+
+        if (
+            self.engine_signal.status == SimulationStatus.ERROR
+            or self.engine_roundabout.status == SimulationStatus.ERROR
+        ):
+            return "error"
+        if (
+            self.engine_signal.status == SimulationStatus.COMPLETED
+            and self.engine_roundabout.status == SimulationStatus.COMPLETED
+        ):
+            return "completed"
         return self.engine_signal.status.value.lower()
 
     def get_dual_snapshot(self) -> Dict[str, Any]:
