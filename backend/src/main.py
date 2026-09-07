@@ -4,9 +4,10 @@ import io
 import json
 import logging
 import random
+import time
 import uuid
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import jsonschema
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
@@ -642,13 +643,28 @@ def pause_live_simulation() -> Dict[str, Any]:
 @app.websocket("/ws/simulation/live")
 async def websocket_live_stream(websocket: WebSocket) -> None:
     await websocket.accept()
+    last_status: Optional[str] = None
+    last_sent_time = 0.0
+
     try:
         while True:
             sim = get_or_create_live_simulation()
+            engine = sim.get("engine")
             builder = sim.get("builder")
-            if builder is not None:
-                snapshot = builder.build()
-                await websocket.send_json(snapshot)
+            if builder is not None and engine is not None:
+                current_status = engine.status.value.lower()
+                now = time.time()
+
+                if (
+                    current_status != "completed"
+                    or current_status != last_status
+                    or (now - last_sent_time >= 1.0)
+                ):
+                    snapshot = builder.build()
+                    await websocket.send_json(snapshot)
+                    last_status = current_status
+                    last_sent_time = now
+
             # Sleep 100ms for 10Hz frequency
             await asyncio.sleep(0.1)
     except WebSocketDisconnect:
@@ -741,13 +757,26 @@ def get_dual_simulation_status() -> Dict[str, Any]:
 @app.websocket("/ws/simulation/dual")
 async def websocket_dual_stream(websocket: WebSocket) -> None:
     await websocket.accept()
+    last_status: Optional[str] = None
+    last_sent_time = 0.0
 
     try:
         while True:
             # Re-fetch orchestrator each frame so config changes are reflected
             orch = get_or_create_dual_orchestrator()
-            snapshot = orch.get_dual_snapshot()
-            await websocket.send_json(snapshot)
+            current_status = orch.get_status()
+            now = time.time()
+
+            if (
+                current_status != "completed"
+                or current_status != last_status
+                or (now - last_sent_time >= 1.0)
+            ):
+                snapshot = orch.get_dual_snapshot()
+                await websocket.send_json(snapshot)
+                last_status = current_status
+                last_sent_time = now
+
             # Sleep 100ms for 10Hz frequency
             await asyncio.sleep(0.1)
     except WebSocketDisconnect:

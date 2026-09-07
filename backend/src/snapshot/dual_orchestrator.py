@@ -1,11 +1,17 @@
 import json
-from typing import Any, Dict
+import logging
+import threading
+import time
+from typing import Any, Dict, Optional
 
 from src.controllers.factory import build_tick_callback, create_controller
 from src.core.clock import Clock
 from src.core.engine import SimulationEngine
+from src.core.enums import SimulationStatus
 from src.metrics.collector import MetricCollector
 from src.snapshot.builder import SnapshotBuilder
+
+logger = logging.getLogger(__name__)
 
 
 class DualSimulationOrchestrator:
@@ -124,29 +130,110 @@ class DualSimulationOrchestrator:
             )
         )
 
+        # ── Thread synchronization primitives for lockstep execution ────
+        self._thread: Optional[threading.Thread] = None
+        self._stop_event: threading.Event = threading.Event()
+        self._lock: threading.Lock = threading.Lock()
+
     def start(self) -> None:
-        self.engine_signal.start()
-        self.engine_roundabout.start()
+        with self._lock:
+            if self.engine_signal.status == SimulationStatus.RUNNING:
+                return
+            if self.engine_signal.status == SimulationStatus.PAUSED:
+                self.resume()
+                return
+
+            self.engine_signal._transition_to(SimulationStatus.RUNNING)
+            self.engine_roundabout._transition_to(SimulationStatus.RUNNING)
+            self._stop_event.clear()
+            self._thread = threading.Thread(target=self._run_loop, daemon=True)
+            self._thread.start()
+
+    def _run_loop(self) -> None:
+        while not self._stop_event.is_set():
+            with self._lock:
+                if (
+                    self.engine_signal.status != SimulationStatus.RUNNING
+                    or self.engine_roundabout.status != SimulationStatus.RUNNING
+                ):
+                    break
+
+            start_time = time.time()
+
+            try:
+                self.step()
+            except Exception:
+                logger.exception("Error in dual simulation step")
+                with self._lock:
+                    self.engine_signal._transition_to(SimulationStatus.ERROR)
+                    self.engine_roundabout._transition_to(SimulationStatus.ERROR)
+                break
+
+            with self._lock:
+                if (
+                    self.engine_signal.status == SimulationStatus.COMPLETED
+                    and self.engine_roundabout.status == SimulationStatus.COMPLETED
+                ):
+                    break
+
+            elapsed = time.time() - start_time
+            sleep_time = max(0.0, self.clock_signal.time_step - elapsed)
+            time.sleep(sleep_time)
 
     def resume(self) -> None:
-        self.engine_signal.resume()
-        self.engine_roundabout.resume()
+        thread_to_join: Optional[threading.Thread] = None
+        with self._lock:
+            if self.engine_signal.status != SimulationStatus.PAUSED:
+                return
+            thread_to_join = self._thread
+
+        if thread_to_join is not None and thread_to_join is not threading.current_thread():
+            thread_to_join.join()
+
+        with self._lock:
+            if self.engine_signal.status == SimulationStatus.PAUSED:
+                self.engine_signal._transition_to(SimulationStatus.RUNNING)
+                self.engine_roundabout._transition_to(SimulationStatus.RUNNING)
+                self._stop_event.clear()
+                self._thread = threading.Thread(target=self._run_loop, daemon=True)
+                self._thread.start()
 
     def pause(self) -> None:
-        self.engine_signal.pause()
-        self.engine_roundabout.pause()
+        with self._lock:
+            if self.engine_signal.status == SimulationStatus.RUNNING:
+                self._stop_event.set()
+                self.engine_signal._transition_to(SimulationStatus.PAUSED)
+                self.engine_roundabout._transition_to(SimulationStatus.PAUSED)
 
     def stop(self) -> None:
-        self.engine_signal.stop()
-        self.engine_roundabout.stop()
+        thread_to_join: Optional[threading.Thread] = None
+        with self._lock:
+            self._stop_event.set()
+            thread_to_join = self._thread
+            self.engine_signal._transition_to(SimulationStatus.COMPLETED)
+            self.engine_roundabout._transition_to(SimulationStatus.COMPLETED)
+
+        if thread_to_join is not None and thread_to_join is not threading.current_thread():
+            thread_to_join.join()
+
+    def reset(self) -> None:
+        thread_to_join: Optional[threading.Thread] = None
+        with self._lock:
+            self._stop_event.set()
+            thread_to_join = self._thread
+
+        if thread_to_join is not None and thread_to_join is not threading.current_thread():
+            thread_to_join.join()
+
+        with self._lock:
+            self.engine_signal.reset()
+            self.engine_roundabout.reset()
 
     def step(self) -> None:
         self.engine_signal.step()
         self.engine_roundabout.step()
 
     def get_status(self) -> str:
-        from src.core.enums import SimulationStatus
-
         if (
             self.engine_signal.status == SimulationStatus.ERROR
             or self.engine_roundabout.status == SimulationStatus.ERROR

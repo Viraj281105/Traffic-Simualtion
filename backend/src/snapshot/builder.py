@@ -109,8 +109,13 @@ class SnapshotBuilder:
                 }
             )
 
-        # Exited vehicles
-        for v in self.engine.pool.exited_vehicles:
+        # Exited vehicles - serialize up to the most recent 50 to keep payload bounded
+        # while snapshot["vehicleCounts"]["exited"] accurately records the full cumulative total
+        exited_to_serialize = self.engine.pool.exited_vehicles
+        if len(exited_to_serialize) > 50:
+            exited_to_serialize = exited_to_serialize[-50:]
+
+        for v in exited_to_serialize:
             direction_str = "north"
             if v.route:
                 raw_dir = v.route[0].lane_id.split("_")[0].lower()
