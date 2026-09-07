@@ -28,7 +28,9 @@ export const ComparativeDashboard: React.FC<ComparativeDashboardProps> = ({
       <div className="analytics-modal-overlay" onClick={onClose}>
         <div
           className="analytics-modal-content comparative-dashboard empty"
-          onClick={(e) => { e.stopPropagation(); }}
+          onClick={(e) => {
+            e.stopPropagation();
+          }}
         >
           <p>Waiting for simulation data...</p>
         </div>
@@ -123,7 +125,9 @@ export const ComparativeDashboard: React.FC<ComparativeDashboardProps> = ({
     <div className="analytics-modal-overlay" onClick={onClose}>
       <div
         className="analytics-modal-content comparative-dashboard"
-        onClick={(e) => { e.stopPropagation(); }}
+        onClick={(e) => {
+          e.stopPropagation();
+        }}
       >
         <div className="modal-header">
           <h2 className="modal-title">📊 Comparison Analytics</h2>

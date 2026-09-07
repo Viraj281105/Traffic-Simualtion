@@ -1024,7 +1024,7 @@ body {
 /* ── Comparative Actions Bar ─────────────────────────────────────────────── */
 .comparative-actions-bar {
   display: flex;
-  justify-content: center;
+  justify-content: flex-end;
   gap: 16px;
   padding: 16px;
   background: var(--bg-secondary);
