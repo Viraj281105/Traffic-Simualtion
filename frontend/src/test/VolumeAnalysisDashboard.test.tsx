@@ -67,7 +67,7 @@ describe("VolumeAnalysisDashboard", () => {
 
     render(<VolumeAnalysisDashboard />);
     expect(
-      screen.getByText(/Run Volume Sweep Experiment/i),
+      screen.getByText(/Traffic Volume & Capacity Analysis/i),
     ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /Run Sweep/i }),
@@ -82,9 +82,10 @@ describe("VolumeAnalysisDashboard", () => {
     render(<VolumeAnalysisDashboard />);
 
     await waitFor(() =>
-      expect(screen.getByText("Test Sweep")).toBeInTheDocument(),
+      expect(screen.getByText(/Saved Sweeps/i)).toBeInTheDocument(),
     );
-    expect(screen.getByText(/Saved Sweeps/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Saved Sweeps/i }));
+    expect(screen.getByText("Test Sweep")).toBeInTheDocument();
   });
 
   it("displays crossover badge when a sweep session is active", async () => {
@@ -99,10 +100,12 @@ describe("VolumeAnalysisDashboard", () => {
 
     render(<VolumeAnalysisDashboard />);
 
-    // Click saved sweep item after it appears
     await waitFor(() =>
-      expect(screen.getByText("Test Sweep")).toBeInTheDocument(),
+      expect(
+        screen.getByRole("button", { name: /Saved Sweeps/i }),
+      ).toBeInTheDocument(),
     );
+    fireEvent.click(screen.getByRole("button", { name: /Saved Sweeps/i }));
     fireEvent.click(screen.getByText("Test Sweep"));
 
     await waitFor(() =>
@@ -158,9 +161,19 @@ describe("VolumeAnalysisDashboard", () => {
     render(<VolumeAnalysisDashboard />);
 
     await waitFor(() =>
-      expect(screen.getByText("Test Sweep")).toBeInTheDocument(),
+      expect(
+        screen.getByRole("button", { name: /Saved Sweeps/i }),
+      ).toBeInTheDocument(),
     );
+    fireEvent.click(screen.getByRole("button", { name: /Saved Sweeps/i }));
     fireEvent.click(screen.getByText("Test Sweep"));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Head-to-Head Volume Matrix/i),
+      ).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByText(/Head-to-Head Volume Matrix/i));
 
     // The 3 run rows (one per arrival rate)
     await waitFor(() => {
