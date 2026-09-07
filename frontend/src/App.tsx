@@ -15,8 +15,7 @@ import { ValidationDashboard } from "./components/ValidationDashboard";
 import { ConfigurationSidebar } from "./components/ConfigurationSidebar";
 import { Sun, Moon } from "lucide-react";
 import type { SimulationConfigValues } from "./types/config";
-import { updateSimulationConfig } from "./services/api";
-import { API_BASE_URL } from "./config";
+import { saveReplay, updateSimulationConfig } from "./services/api";
 import type {
   LiveSnapshot,
   DualSnapshot,
@@ -353,12 +352,7 @@ export function App() {
       metrics: metricsToSave,
     };
 
-    fetch(`${API_BASE_URL}/api/v1/replays`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    })
-      .then((r) => r.json())
+    saveReplay(payload)
       .then(() => {
         showToast("✅ Simulation saved to history!");
       })

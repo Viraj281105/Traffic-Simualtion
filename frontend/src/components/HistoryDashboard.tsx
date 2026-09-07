@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import "./HistoryDashboard.css";
-import { API_BASE_URL } from "../config";
+import { deleteReplay, listReplays } from "../services/api";
 
 import { RunningMetrics } from "../types/simulation";
 
@@ -39,9 +39,8 @@ export const HistoryDashboard: React.FC<HistoryDashboardProps> = ({
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch(`${API_BASE_URL}/api/v1/replays`)
-      .then((res) => res.json())
-      .then((data: SavedReplay[]) => {
+    listReplays<SavedReplay[]>()
+      .then((data) => {
         setReplays(data);
         setLoading(false);
       })
@@ -52,10 +51,7 @@ export const HistoryDashboard: React.FC<HistoryDashboardProps> = ({
   }, []);
 
   const confirmDelete = (id: string) => {
-    fetch(`${API_BASE_URL}/api/v1/replays/${id}`, {
-      method: "DELETE",
-    })
-      .then((res) => res.json())
+    deleteReplay(id)
       .then((data: { status: string }) => {
         if (data.status === "ok") {
           setReplays((prev) => prev.filter((r) => r.id !== id));

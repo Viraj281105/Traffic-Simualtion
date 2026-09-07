@@ -2,18 +2,30 @@ import { API_BASE_URL } from "../config";
 
 const BASE = API_BASE_URL;
 
-async function post(path: string): Promise<unknown> {
-  const res = await fetch(`${BASE}${path}`, { method: "POST" });
-  if (!res.ok)
-    throw new Error(`HTTP ${res.status.toString()}: ${res.statusText}`);
-  return res.json();
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(`${BASE}${path}`, init);
+  if (!response.ok) {
+    throw new Error(
+      `HTTP ${response.status.toString()}: ${response.statusText}`,
+    );
+  }
+  return response.json() as Promise<T>;
 }
 
-async function get(path: string): Promise<unknown> {
-  const res = await fetch(`${BASE}${path}`);
-  if (!res.ok)
-    throw new Error(`HTTP ${res.status.toString()}: ${res.statusText}`);
-  return res.json();
+async function post<T>(path: string, body?: unknown): Promise<T> {
+  return request<T>(path, {
+    method: "POST",
+    ...(body === undefined
+      ? {}
+      : {
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+  });
+}
+
+async function get<T>(path: string): Promise<T> {
+  return request<T>(path);
 }
 
 /** Start / resume the live simulation engine. */
@@ -52,11 +64,7 @@ export async function getDualSimulationStatus(): Promise<{
   elapsed: number;
   tick: number;
 }> {
-  return get("/api/simulation/dual/status") as Promise<{
-    status: string;
-    elapsed: number;
-    tick: number;
-  }>;
+  return get("/api/simulation/dual/status");
 }
 
 /** Get current simulation lifecycle status. */
@@ -64,10 +72,7 @@ export async function getSimulationStatus(): Promise<{
   status: string;
   message?: string;
 }> {
-  return get("/api/simulation/status") as Promise<{
-    status: string;
-    message?: string;
-  }>;
+  return get("/api/simulation/status");
 }
 
 /** Send new configuration to backend. */
@@ -88,14 +93,7 @@ export async function updateSimulationConfig(config: {
   criticalGap?: number;
   followUpTime?: number;
 }): Promise<void> {
-  const res = await fetch(`${BASE}/api/simulation/config`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(config),
-  });
-  if (!res.ok) {
-    throw new Error(`HTTP ${res.status.toString()}: ${res.statusText}`);
-  }
+  await post("/api/simulation/config", config);
 }
 
 /** Reset/stop lockstep dual simulation. */
@@ -111,14 +109,7 @@ export async function runVolumeSweep(params: {
   random_seed?: number;
   time_step?: number;
 }): Promise<unknown> {
-  const res = await fetch(`${BASE}/api/v1/study/sweeps/run`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(params),
-  });
-  if (!res.ok)
-    throw new Error(`HTTP ${res.status.toString()}: ${res.statusText}`);
-  return res.json();
+  return post("/api/v1/study/sweeps/run", params);
 }
 
 /** List saved sweep sessions. */
@@ -136,12 +127,21 @@ export async function runMonteCarlo(params: {
   num_seeds?: number;
   duration?: number;
 }): Promise<unknown> {
-  const res = await fetch(`${BASE}/api/v1/study/validate/monte-carlo`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(params),
-  });
-  if (!res.ok)
-    throw new Error(`HTTP ${res.status.toString()}: ${res.statusText}`);
-  return res.json();
+  return post("/api/v1/study/validate/monte-carlo", params);
+}
+
+export async function saveReplay(payload: {
+  name: string;
+  config: Record<string, unknown>;
+  metrics: Record<string, unknown>;
+}): Promise<{ status: string; replay_id: string }> {
+  return post("/api/v1/replays", payload);
+}
+
+export async function listReplays<T>(): Promise<T> {
+  return get<T>("/api/v1/replays");
+}
+
+export async function deleteReplay(id: string): Promise<{ status: string }> {
+  return request(`/api/v1/replays/${id}`, { method: "DELETE" });
 }

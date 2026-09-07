@@ -1,9 +1,9 @@
 import asyncio
 import csv
 import io
+import json
 import logging
 import random
-import traceback
 import uuid
 from pathlib import Path
 from typing import Any, Dict
@@ -20,7 +20,8 @@ from src.core.config_models import ScenarioConfiguration
 from src.core.engine import SimulationEngine
 from src.core.enums import SimulationStatus
 from src.database.dao import RunMetricsDAO, SimulationRunDAO, SweepSessionDAO
-from src.database.db import DB_PATH, get_db_connection, init_db
+from src.database.db import DB_PATH, get_db_connection, init_db  # noqa: F401
+from src.database.replay_dao import ReplayDAO
 from src.metrics.collector import MetricCollector
 from src.snapshot.buffer import SnapshotBuffer
 from src.snapshot.builder import SnapshotBuilder
@@ -69,8 +70,6 @@ SCHEMA_PATHS = [
     Path("shared/schemas/config.schema.json"),
 ]
 
-import json
-
 CONFIG_SCHEMA: Dict[str, Any] = {}
 for p in SCHEMA_PATHS:
     if p.is_file():
@@ -78,7 +77,7 @@ for p in SCHEMA_PATHS:
             with open(p, "r", encoding="utf-8") as f:
                 CONFIG_SCHEMA = json.load(f)
             break
-        except Exception:
+        except (OSError, json.JSONDecodeError):
             pass
 
 # ── Global State for Multi-Vehicle Simulations ──────────────────────────────
@@ -655,7 +654,7 @@ async def websocket_live_stream(websocket: WebSocket) -> None:
     except WebSocketDisconnect:
         pass
     except Exception as e:
-        traceback.print_exc()
+        logger.exception("Live simulation websocket failed")
         try:
             await websocket.close(code=1011, reason=str(e))
         except Exception:
@@ -754,7 +753,7 @@ async def websocket_dual_stream(websocket: WebSocket) -> None:
     except WebSocketDisconnect:
         pass
     except Exception as e:
-        traceback.print_exc()
+        logger.exception("Dual simulation websocket failed")
         try:
             await websocket.close(code=1011, reason=str(e))
         except Exception:
@@ -800,31 +799,21 @@ def run_sweep_endpoint(payload: VolumeSweepRequest | None = None) -> Dict[str, A
 def list_sweeps_endpoint(limit: int = 20, offset: int = 0) -> list[Dict[str, Any]]:
     """Lists past volume sweep benchmark experiments."""
     init_db()
-    import sqlite3
-
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    try:
+    for conn in get_db_connection():
         return SweepSessionDAO.list_sessions(conn, limit=limit, offset=offset)
-    finally:
-        conn.close()
+    return []
 
 
 @app.get("/api/v1/study/sweeps/{sweep_id}")
 def get_sweep_endpoint(sweep_id: str) -> Dict[str, Any]:
     """Retrieves a specific volume sweep benchmark session."""
     init_db()
-    import sqlite3
-
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    try:
+    for conn in get_db_connection():
         session = SweepSessionDAO.get(conn, sweep_id)
         if not session:
             raise HTTPException(status_code=404, detail="Sweep session not found")
         return session
-    finally:
-        conn.close()
+    raise HTTPException(status_code=500, detail="Database connection error")
 
 
 class RunComparisonRequest(BaseModel):
@@ -1085,9 +1074,6 @@ class SaveReplayRequest(BaseModel):
     name: str
     config: Dict[str, Any]
     metrics: Dict[str, Any]
-
-
-from src.database.replay_dao import ReplayDAO
 
 
 @app.post("/api/v1/replays")
