@@ -107,14 +107,8 @@ class MetricCollector:
         post_warmup_exited = [
             v
             for v in exited_vehicles
-            if (
-                v.exit_time is not None
-                and v.exit_time >= self.warmup_time
-            )
-            or (
-                v.exit_time is None
-                and v.spawn_time >= self.warmup_time
-            )
+            if (v.exit_time is not None and v.exit_time >= self.warmup_time)
+            or (v.exit_time is None and v.spawn_time >= self.warmup_time)
         ]
 
         # Calculate current queue lengths

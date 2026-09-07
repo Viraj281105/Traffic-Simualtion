@@ -1,4 +1,5 @@
 import sqlite3
+
 from fastapi.testclient import TestClient
 
 from src.database.db import DB_PATH, init_db

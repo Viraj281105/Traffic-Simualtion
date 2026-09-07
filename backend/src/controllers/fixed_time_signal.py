@@ -244,7 +244,9 @@ class FixedTimeSignalController(BaseController):
                 should_be_green = False
                 is_yellow_phase = False
 
-                if phase.direction == d and any(t in phase.allowed_turns for t in lane_turns):
+                if phase.direction == d and any(
+                    t in phase.allowed_turns for t in lane_turns
+                ):
                     if phase.color == "green":
                         should_be_green = True
                     elif phase.color == "yellow":
@@ -254,10 +256,14 @@ class FixedTimeSignalController(BaseController):
                     lane.virtual_obstacle = None
                 elif is_yellow_phase:
                     # Allow dilemma zone clearance during yellow phase
-                    lane.virtual_obstacle = VirtualObstacle(position=lane.length, is_yellow=True)
+                    lane.virtual_obstacle = VirtualObstacle(
+                        position=lane.length, is_yellow=True
+                    )
                 else:
                     # Block the lane with a virtual obstacle at the stop line
-                    lane.virtual_obstacle = VirtualObstacle(position=lane.length, is_yellow=False)
+                    lane.virtual_obstacle = VirtualObstacle(
+                        position=lane.length, is_yellow=False
+                    )
 
     # ------------------------------------------------------------------
     # State snapshot (for the frontend / API)

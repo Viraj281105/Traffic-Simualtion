@@ -191,7 +191,9 @@ def run_volume_sweep_experiment(
             if crossover_rate is None and len(roundabout_delays) > 1:
                 prev_diff = roundabout_delays[-2] - signal_delays[-2]
                 curr_diff = round_delay - sig_delay
-                if (prev_diff < 0 and curr_diff > 0) or (prev_diff > 0 and curr_diff < 0):
+                if (prev_diff < 0 and curr_diff > 0) or (
+                    prev_diff > 0 and curr_diff < 0
+                ):
                     crossover_rate = rate
 
             # Save to database
@@ -262,7 +264,9 @@ def run_volume_sweep_experiment(
             runs_data.append(
                 {
                     "arrivalRate": rate,
-                    "hourlyVolumeVehPerHour": int(rate * 3600 * 4),  # 4 approaches total
+                    "hourlyVolumeVehPerHour": int(
+                        rate * 3600 * 4
+                    ),  # 4 approaches total
                     "signal": {
                         "runId": sig_run_id,
                         "delay": sig_delay,

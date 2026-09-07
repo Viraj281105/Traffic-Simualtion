@@ -166,7 +166,9 @@ def find_leader(
             is_yellow = getattr(virtual_obs, "is_yellow", False)
             if is_yellow and i == curr_idx:
                 # Dilemma zone calculation: if vehicle cannot safely stop comfortably before line, permit clearance
-                stopping_dist = (vehicle.speed**2) / (2.0 * max(getattr(vehicle, "comfort_deceleration", 3.0), 1.0))
+                stopping_dist = (vehicle.speed**2) / (
+                    2.0 * max(getattr(vehicle, "comfort_deceleration", 3.0), 1.0)
+                )
                 dist_to_line = max(0.0, virtual_obs.position - vehicle.position)
                 if dist_to_line <= stopping_dist + vehicle.length:
                     virtual_obs = None

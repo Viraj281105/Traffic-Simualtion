@@ -189,7 +189,10 @@ class DualSimulationOrchestrator:
                 return
             thread_to_join = self._thread
 
-        if thread_to_join is not None and thread_to_join is not threading.current_thread():
+        if (
+            thread_to_join is not None
+            and thread_to_join is not threading.current_thread()
+        ):
             thread_to_join.join()
 
         with self._lock:
@@ -215,7 +218,10 @@ class DualSimulationOrchestrator:
             self.engine_signal._transition_to(SimulationStatus.COMPLETED)
             self.engine_roundabout._transition_to(SimulationStatus.COMPLETED)
 
-        if thread_to_join is not None and thread_to_join is not threading.current_thread():
+        if (
+            thread_to_join is not None
+            and thread_to_join is not threading.current_thread()
+        ):
             thread_to_join.join()
 
     def reset(self) -> None:
@@ -224,7 +230,10 @@ class DualSimulationOrchestrator:
             self._stop_event.set()
             thread_to_join = self._thread
 
-        if thread_to_join is not None and thread_to_join is not threading.current_thread():
+        if (
+            thread_to_join is not None
+            and thread_to_join is not threading.current_thread()
+        ):
             thread_to_join.join()
 
         with self._lock:
