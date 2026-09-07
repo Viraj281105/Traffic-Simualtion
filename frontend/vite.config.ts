@@ -2,6 +2,13 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { resolve } from "path";
+import type { InlineConfig as VitestInlineConfig } from "vitest/node";
+
+declare module "vite" {
+  interface UserConfig {
+    test?: VitestInlineConfig;
+  }
+}
 
 // https://vitejs.dev/config/
 export default defineConfig({

@@ -63,10 +63,10 @@ describe("ValidationDashboard", () => {
   it("renders trigger panel with heading and button", () => {
     render(<ValidationDashboard />);
     expect(
-      screen.getByText(/Monte Carlo Statistical Validation/i),
+      screen.getByText(/Statistical Validation Studio/i),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: /Run Validation/i }),
+      screen.getByTitle("Execute Monte Carlo validation"),
     ).toBeInTheDocument();
   });
 
@@ -74,10 +74,12 @@ describe("ValidationDashboard", () => {
     vi.mocked(fetch).mockImplementationOnce(() => new Promise(() => undefined));
 
     render(<ValidationDashboard />);
-    fireEvent.click(screen.getByRole("button", { name: /Run Validation/i }));
+    fireEvent.click(screen.getByTitle("Execute Monte Carlo validation"));
 
     await waitFor(() =>
-      expect(screen.getByText(/Executing/i)).toBeInTheDocument(),
+      expect(
+        screen.getByText(/computing two-sample Welch statistics/i),
+      ).toBeInTheDocument(),
     );
     expect(screen.getByRole("button", { name: /Running/i })).toBeDisabled();
   });
@@ -88,7 +90,7 @@ describe("ValidationDashboard", () => {
     );
 
     const { container } = render(<ValidationDashboard />);
-    fireEvent.click(screen.getByRole("button", { name: /Run Validation/i }));
+    fireEvent.click(screen.getByTitle("Execute Monte Carlo validation"));
 
     // Wait for verdict card to appear
     await waitFor(
@@ -112,14 +114,22 @@ describe("ValidationDashboard", () => {
     );
 
     render(<ValidationDashboard />);
-    fireEvent.click(screen.getByRole("button", { name: /Run Validation/i }));
+    fireEvent.click(screen.getByTitle("Execute Monte Carlo validation"));
+
+    // Switch to table tab
+    await waitFor(() =>
+      expect(screen.getByText(/Per-Seed Raw Table/i)).toBeInTheDocument(),
+    );
+    fireEvent.click(screen.getByText(/Per-Seed Raw Table/i));
 
     await waitFor(() =>
-      expect(screen.getByText(/Per-Seed Raw Results/i)).toBeInTheDocument(),
+      expect(
+        screen.getByText(/Synchronized Raw Trials Dataset/i),
+      ).toBeInTheDocument(),
     );
     // Seed values in the table
-    expect(screen.getByText("1001")).toBeInTheDocument();
-    expect(screen.getByText("1002")).toBeInTheDocument();
+    expect(screen.getByText(/1001/)).toBeInTheDocument();
+    expect(screen.getByText(/1002/)).toBeInTheDocument();
   });
 
   it("displays an error message on failed API call", async () => {
@@ -128,7 +138,7 @@ describe("ValidationDashboard", () => {
     );
 
     render(<ValidationDashboard />);
-    fireEvent.click(screen.getByRole("button", { name: /Run Validation/i }));
+    fireEvent.click(screen.getByTitle("Execute Monte Carlo validation"));
 
     await waitFor(() =>
       expect(screen.getByText(/HTTP 503/i)).toBeInTheDocument(),
@@ -141,11 +151,11 @@ describe("ValidationDashboard", () => {
     );
 
     render(<ValidationDashboard />);
-    fireEvent.click(screen.getByRole("button", { name: /Run Validation/i }));
+    fireEvent.click(screen.getByTitle("Execute Monte Carlo validation"));
 
     await waitFor(() => {
       // Two 'Significant' tags for delay+throughput, one 'Not Significant' for queue
-      const sigTags = screen.getAllByText(/Significant/i);
+      const sigTags = screen.getAllByText(/Significant|Sig/i);
       expect(sigTags.length).toBeGreaterThanOrEqual(3);
     });
   });
@@ -156,10 +166,10 @@ describe("ValidationDashboard", () => {
     );
 
     render(<ValidationDashboard />);
-    fireEvent.click(screen.getByRole("button", { name: /Run Validation/i }));
+    fireEvent.click(screen.getByTitle("Execute Monte Carlo validation"));
 
     await waitFor(() => {
-      expect(screen.getByText(/Cohen.*1\.4/)).toBeInTheDocument();
+      expect(screen.getByText("1.400")).toBeInTheDocument();
     });
   });
 });
