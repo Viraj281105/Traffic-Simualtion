@@ -639,3 +639,203 @@
   font-size: 10.5px;
   white-space: nowrap;
 }
+
+/* ── LIGHT MODE OVERRIDES ────────────────────────────────────────────────── */
+.light .validation-dashboard {
+  background: radial-gradient(
+    circle at top right,
+    var(--bg-tertiary) 0%,
+    var(--bg-primary) 100%
+  );
+  color: var(--text-primary);
+}
+.light .validation-trigger-panel {
+  background: var(--bg-card);
+  border-color: var(--border-color);
+  box-shadow: var(--shadow-sm);
+}
+.light .panel-header-badge h3 {
+  color: var(--accent-purple);
+}
+.light .badge-pill {
+  background: rgba(168, 85, 247, 0.1);
+  color: var(--accent-purple);
+  border-color: rgba(168, 85, 247, 0.2);
+}
+.light .validation-field label {
+  color: var(--text-secondary);
+}
+.light .validation-field input[type="number"] {
+  background: var(--bg-tertiary);
+  border-color: var(--border-color);
+  color: var(--text-primary);
+}
+.light .validation-field input[type="number"]:focus {
+  border-color: var(--accent-purple);
+  box-shadow: 0 0 0 2px rgba(168, 85, 247, 0.15);
+}
+.light .preset-label {
+  color: var(--text-secondary);
+}
+.light .preset-tag {
+  background: var(--bg-secondary);
+  border-color: var(--border-color);
+  color: var(--text-primary);
+}
+.light .preset-tag:hover {
+  background: rgba(168, 85, 247, 0.1);
+  border-color: rgba(168, 85, 247, 0.2);
+  color: var(--accent-purple);
+}
+.light .validation-error {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.2);
+  color: var(--accent-red);
+}
+.light .validation-loading {
+  background: rgba(168, 85, 247, 0.1);
+  border-color: rgba(168, 85, 247, 0.2);
+  color: var(--accent-purple);
+}
+.light .spin-purple {
+  border-color: rgba(168, 85, 247, 0.2);
+  border-top-color: var(--accent-purple);
+}
+.light .methodology-card {
+  background: var(--bg-card);
+  border-color: var(--border-color);
+}
+.light .methodology-title {
+  color: var(--text-primary);
+}
+.light .confidence-pill {
+  background: rgba(46, 204, 64, 0.1);
+  color: var(--accent-green);
+  border-color: rgba(46, 204, 64, 0.2);
+}
+.light .toggle-methodology-btn {
+  color: var(--text-secondary);
+}
+.light .methodology-body {
+  border-color: var(--border-color);
+}
+.light .method-sub {
+  color: var(--accent-purple);
+}
+.light .methodology-col p {
+  color: var(--text-secondary);
+}
+.light .scale-item.neg {
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+}
+.light .scale-item.sm {
+  background: rgba(96, 165, 250, 0.1);
+  color: hsl(215 80% 45%);
+}
+.light .scale-item.med {
+  background: rgba(59, 130, 246, 0.15);
+  color: var(--accent-blue);
+}
+.light .scale-item.lg {
+  background: rgba(255, 217, 61, 0.15);
+  color: hsl(35 90% 40%);
+}
+.light .verdict-card.significant {
+  background: rgba(46, 204, 64, 0.05);
+  border-color: rgba(46, 204, 64, 0.2);
+}
+.light .verdict-card.not-significant {
+  background: rgba(239, 68, 68, 0.05);
+  border-color: rgba(239, 68, 68, 0.2);
+}
+.light .verdict-text strong {
+  color: var(--text-primary);
+}
+.light .verdict-text span {
+  color: var(--text-secondary);
+}
+.light .sig-tag.yes {
+  background: rgba(46, 204, 64, 0.1);
+  color: var(--accent-green);
+  border-color: rgba(46, 204, 64, 0.2);
+}
+.light .sig-tag.no {
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  border-color: var(--border-color);
+}
+.light .stat-card {
+  background: var(--bg-card);
+  border-color: var(--border-color);
+  box-shadow: var(--shadow-sm);
+}
+.light .stat-card h4 {
+  color: var(--text-primary);
+}
+.light .effect-badge {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+.light .ci-label {
+  color: var(--text-primary);
+}
+.light .ci-stat-sub {
+  color: var(--text-secondary);
+}
+.light .ci-bar-track {
+  background: var(--bg-tertiary);
+  border-color: var(--border-color);
+}
+.light .ci-bar-ci {
+  background: rgba(0, 0, 0, 0.05);
+  border-color: var(--text-primary);
+}
+.light .ci-range {
+  color: var(--text-secondary);
+}
+.light .metric-stats-footer {
+  border-color: var(--border-color);
+}
+.light .stats-footer-left {
+  color: var(--text-secondary);
+}
+.light .cohen-d strong,
+.light .p-val strong {
+  color: var(--text-primary);
+}
+.light .seed-runs-table-wrapper {
+  background: var(--bg-card);
+  border-color: var(--border-color);
+}
+.light .runs-table-header h4 {
+  color: var(--text-primary);
+}
+.light .table-meta-hint {
+  color: var(--text-secondary);
+}
+.light .table-scroll-container {
+  border-color: var(--border-color);
+}
+.light .seed-runs-table-wrapper th,
+.light .seed-runs-table-wrapper td {
+  border-color: var(--border-color);
+}
+.light .seed-runs-table-wrapper th {
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+}
+.light .seed-runs-table-wrapper td {
+  color: var(--text-primary);
+}
+.light .seed-runs-table-wrapper tbody tr:hover {
+  background: var(--bg-hover);
+}
+.light .seed-winner-rnd {
+  background: rgba(46, 204, 64, 0.1);
+  color: var(--accent-green);
+}
+.light .seed-winner-sig {
+  background: rgba(77, 150, 255, 0.1);
+  color: var(--accent-blue);
+}
