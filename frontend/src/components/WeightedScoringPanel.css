@@ -212,3 +212,72 @@
   background: #2ecc40;
   transition: width 0.3s ease;
 }
+
+/* ── LIGHT MODE OVERRIDES ────────────────────────────────────────────────── */
+.light .weighted-scoring-card {
+  background: var(--bg-card);
+  border-color: var(--border-color);
+  box-shadow: var(--shadow-md);
+}
+.light .weighted-scoring-card:hover {
+  border-color: var(--accent-blue);
+}
+.light .scoring-header {
+  border-color: var(--border-color);
+}
+.light .scoring-title {
+  color: var(--text-primary);
+}
+.light .scoring-subtitle {
+  color: var(--text-secondary);
+}
+.light .preset-btn {
+  background: var(--bg-tertiary);
+  border-color: var(--border-color);
+  color: var(--text-secondary);
+}
+.light .preset-btn:hover {
+  background: rgba(59, 130, 246, 0.1);
+  border-color: var(--accent-blue);
+  color: var(--accent-blue);
+}
+.light .winner-banner {
+  background: linear-gradient(
+    90deg,
+    rgba(46, 204, 64, 0.1) 0%,
+    rgba(59, 130, 246, 0.1) 100%
+  );
+  border-color: rgba(59, 130, 246, 0.2);
+}
+.light .winner-label {
+  color: var(--text-secondary);
+}
+.light .winner-name {
+  color: var(--accent-blue);
+}
+.light .winner-advantage {
+  color: hsl(130 50% 40%);
+}
+.light .score-tag-name {
+  color: var(--text-secondary);
+}
+.light .score-tag-val {
+  color: var(--text-primary);
+}
+.light .weight-control {
+  background: var(--bg-tertiary);
+  border-color: var(--border-color);
+}
+.light .weight-header {
+  color: var(--text-primary);
+}
+.light .weight-percent {
+  color: var(--accent-blue);
+}
+.light .scores-progress-labels {
+  color: var(--text-secondary);
+}
+.light .scores-progress-track {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+}
