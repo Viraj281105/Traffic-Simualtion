@@ -20,15 +20,59 @@ interface SweepRun {
   hourlyVolumeVehPerHour: number;
   winner: "signal" | "roundabout" | "tie";
   delayDeltaPercent: number;
-  signal: { delay: number; throughput: number; queue: number };
-  roundabout: { delay: number; throughput: number; queue: number };
+  throughputDeltaPercent?: number;
+  queueDeltaPercent?: number;
+  signal: {
+    delay: number;
+    delayMedian?: number;
+    delayStdDev?: number;
+    delayMin?: number;
+    delayMax?: number;
+    delayP95?: number;
+    throughput: number;
+    throughputRate?: number;
+    queue: number;
+    queueMax?: number;
+    queueStdDev?: number;
+  };
+  roundabout: {
+    delay: number;
+    delayMedian?: number;
+    delayStdDev?: number;
+    delayMin?: number;
+    delayMax?: number;
+    delayP95?: number;
+    throughput: number;
+    throughputRate?: number;
+    queue: number;
+    queueMax?: number;
+    queueStdDev?: number;
+  };
 }
 
 interface SweepCurves {
   rates: number[];
   volumesVehPerHour: number[];
-  signal: { delays: number[]; throughputs: number[]; queues: number[] };
-  roundabout: { delays: number[]; throughputs: number[]; queues: number[] };
+  signal: {
+    delays: number[];
+    delayStds?: number[];
+    delayMins?: number[];
+    delayMaxs?: number[];
+    throughputs: number[];
+    queues: number[];
+    queueStds?: number[];
+    queueMaxs?: number[];
+  };
+  roundabout: {
+    delays: number[];
+    delayStds?: number[];
+    delayMins?: number[];
+    delayMaxs?: number[];
+    throughputs: number[];
+    queues: number[];
+    queueStds?: number[];
+    queueMaxs?: number[];
+  };
   crossoverArrivalRate: number | null;
   crossoverHourlyVolume: number | null;
 }
@@ -113,18 +157,58 @@ function getHCMLevelOfService(delaySeconds: number): LOSInfo {
 // ── Chart data builder ──────────────────────────────────────────────────────
 
 function buildChartData(session: SweepSession) {
-  return session.runs.map((run) => ({
-    volume: run.hourlyVolumeVehPerHour,
-    rate: Number(run.arrivalRate.toFixed(2)),
-    signalDelay: Number(run.signal.delay.toFixed(2)),
-    roundaboutDelay: Number(run.roundabout.delay.toFixed(2)),
-    signalThroughput: run.signal.throughput,
-    roundaboutThroughput: run.roundabout.throughput,
-    signalQueue: Number(run.signal.queue.toFixed(2)),
-    roundaboutQueue: Number(run.roundabout.queue.toFixed(2)),
-    winner: run.winner,
-    delayDeltaPercent: Number(run.delayDeltaPercent.toFixed(1)),
-  }));
+  if (!Array.isArray(session.runs)) return [];
+  return session.runs.map((run) => {
+    const sigDelay = Number(run.signal.delay.toFixed(2));
+    const rndDelay = Number(run.roundabout.delay.toFixed(2));
+    const sigDelayStd = Number((run.signal.delayStdDev ?? 0).toFixed(2));
+    const rndDelayStd = Number((run.roundabout.delayStdDev ?? 0).toFixed(2));
+    const sigDelayMin = Number(
+      (run.signal.delayMin ?? Math.max(0, sigDelay - sigDelayStd)).toFixed(2),
+    );
+    const sigDelayMax = Number(
+      (run.signal.delayMax ?? sigDelay + sigDelayStd).toFixed(2),
+    );
+    const rndDelayMin = Number(
+      (run.roundabout.delayMin ?? Math.max(0, rndDelay - rndDelayStd)).toFixed(
+        2,
+      ),
+    );
+    const rndDelayMax = Number(
+      (run.roundabout.delayMax ?? rndDelay + rndDelayStd).toFixed(2),
+    );
+    const sigQueue = Number(run.signal.queue.toFixed(2));
+    const rndQueue = Number(run.roundabout.queue.toFixed(2));
+    const sigQueueMax = Number((run.signal.queueMax ?? sigQueue).toFixed(2));
+    const rndQueueMax = Number(
+      (run.roundabout.queueMax ?? rndQueue).toFixed(2),
+    );
+
+    return {
+      volume: run.hourlyVolumeVehPerHour,
+      rate: Number(run.arrivalRate.toFixed(2)),
+      signalDelay: sigDelay,
+      signalDelayMin: sigDelayMin,
+      signalDelayMax: sigDelayMax,
+      signalDelayStdDev: sigDelayStd,
+      roundaboutDelay: rndDelay,
+      roundaboutDelayMin: rndDelayMin,
+      roundaboutDelayMax: rndDelayMax,
+      roundaboutDelayStdDev: rndDelayStd,
+      signalThroughput: run.signal.throughput,
+      roundaboutThroughput: run.roundabout.throughput,
+      signalQueue: sigQueue,
+      signalQueueMax: sigQueueMax,
+      roundaboutQueue: rndQueue,
+      roundaboutQueueMax: rndQueueMax,
+      winner: run.winner,
+      delayDeltaPercent: Number(run.delayDeltaPercent.toFixed(1)),
+      throughputDeltaPercent: Number(
+        (run.throughputDeltaPercent ?? 0).toFixed(1),
+      ),
+      queueDeltaPercent: Number((run.queueDeltaPercent ?? 0).toFixed(1)),
+    };
+  });
 }
 
 // ── Custom Tooltip ──────────────────────────────────────────────────────────
@@ -153,6 +237,16 @@ const CustomTooltip = ({
     | {
         winner?: "signal" | "roundabout" | "tie";
         delayDeltaPercent?: number;
+        throughputDeltaPercent?: number;
+        queueDeltaPercent?: number;
+        signalDelayStdDev?: number;
+        roundaboutDelayStdDev?: number;
+        signalDelayMin?: number;
+        signalDelayMax?: number;
+        roundaboutDelayMin?: number;
+        roundaboutDelayMax?: number;
+        signalQueueMax?: number;
+        roundaboutQueueMax?: number;
       }
     | undefined;
 
@@ -175,16 +269,107 @@ const CustomTooltip = ({
         )}
       </div>
       <div className="tooltip-metrics">
-        {payload.map((p) => (
-          <div key={p.name} className="tooltip-row">
-            <span className="tooltip-dot" style={{ background: p.color }} />
-            <span className="tooltip-name">{p.name}:</span>
-            <span className="tooltip-val" style={{ color: p.color }}>
-              {p.value.toFixed(2)}
-              {unit}
+        {payload.map((p) => {
+          let extraInfo = "";
+          if (
+            p.name === "Fixed-Time Signal" &&
+            raw?.signalDelayStdDev !== undefined &&
+            unit === "s"
+          ) {
+            const minStr =
+              raw.signalDelayMin !== undefined
+                ? `${raw.signalDelayMin.toFixed(1)}–`
+                : "";
+            const maxStr =
+              raw.signalDelayMax !== undefined
+                ? `${raw.signalDelayMax.toFixed(1)}s`
+                : "";
+            extraInfo = ` (±${raw.signalDelayStdDev.toFixed(2)}s, [${minStr}${maxStr}])`;
+          } else if (
+            p.name === "Modern Roundabout" &&
+            raw?.roundaboutDelayStdDev !== undefined &&
+            unit === "s"
+          ) {
+            const minStr =
+              raw.roundaboutDelayMin !== undefined
+                ? `${raw.roundaboutDelayMin.toFixed(1)}–`
+                : "";
+            const maxStr =
+              raw.roundaboutDelayMax !== undefined
+                ? `${raw.roundaboutDelayMax.toFixed(1)}s`
+                : "";
+            extraInfo = ` (±${raw.roundaboutDelayStdDev.toFixed(2)}s, [${minStr}${maxStr}])`;
+          } else if (
+            p.name === "Fixed-Time Signal" &&
+            raw?.signalQueueMax !== undefined &&
+            unit.includes("veh")
+          ) {
+            extraInfo = ` (Peak: ${raw.signalQueueMax.toFixed(1)})`;
+          } else if (
+            p.name === "Modern Roundabout" &&
+            raw?.roundaboutQueueMax !== undefined &&
+            unit.includes("veh")
+          ) {
+            extraInfo = ` (Peak: ${raw.roundaboutQueueMax.toFixed(1)})`;
+          }
+
+          return (
+            <div key={p.name} className="tooltip-row">
+              <span className="tooltip-dot" style={{ background: p.color }} />
+              <span className="tooltip-name">{p.name}:</span>
+              <span className="tooltip-val" style={{ color: p.color }}>
+                {p.value.toFixed(2)}
+                {unit}
+                {extraInfo && (
+                  <span
+                    className="tooltip-extra"
+                    style={{
+                      fontSize: "11px",
+                      opacity: 0.85,
+                      marginLeft: "4px",
+                    }}
+                  >
+                    {extraInfo}
+                  </span>
+                )}
+              </span>
+            </div>
+          );
+        })}
+        {raw?.delayDeltaPercent !== undefined && unit === "s" && (
+          <div
+            className="tooltip-delta-row"
+            style={{
+              marginTop: "6px",
+              paddingTop: "6px",
+              borderTop: "1px solid rgba(255,255,255,0.1)",
+              fontSize: "11px",
+              display: "flex",
+              justifyContent: "space-between",
+            }}
+          >
+            <span style={{ color: "hsl(var(--muted-foreground))" }}>
+              Δ Relative Difference:
+            </span>
+            <span
+              style={{
+                fontWeight: 700,
+                color:
+                  raw.delayDeltaPercent > 0
+                    ? "#38bdf8"
+                    : raw.delayDeltaPercent < 0
+                      ? "#10b981"
+                      : "#f59e0b",
+              }}
+            >
+              {raw.delayDeltaPercent > 0
+                ? `+${raw.delayDeltaPercent.toFixed(1)}% (Signal Advantage)`
+                : raw.delayDeltaPercent < 0
+                  ? `${raw.delayDeltaPercent.toFixed(1)}% (Roundabout Advantage)`
+                  : "0.0% (Parity)"}
             </span>
           </div>
-        ))}
+        )}
       </div>
     </div>
   );
@@ -213,7 +398,7 @@ export const VolumeAnalysisDashboard: React.FC = () => {
   const [arrivalDistribution, setArrivalDistribution] = useState<
     "poisson" | "uniform"
   >("poisson");
-  const [warmupTime, setWarmupTime] = useState(5.0);
+  const [warmupTime, setWarmupTime] = useState(15.0);
   const [timeStep, setTimeStep] = useState(0.1);
   const [approachLength, setApproachLength] = useState(200.0);
   const [lanesCount, setLanesCount] = useState(2);
@@ -229,8 +414,10 @@ export const VolumeAnalysisDashboard: React.FC = () => {
   // Interactive UI view controls
   const [metricView, setMetricView] = useState<MetricView>("delay");
   const [xAxisMode, setXAxisMode] = useState<XAxisMode>("volume");
+  const [showUncertaintyBands, setShowUncertaintyBands] = useState(true);
+  const [showDeltaTrend, setShowDeltaTrend] = useState(false);
   const [filterWinner, setFilterWinner] = useState<
-    "all" | "roundabout" | "signal"
+    "all" | "roundabout" | "signal" | "tie"
   >("all");
 
   const [isRunning, setIsRunning] = useState(false);
@@ -273,7 +460,7 @@ export const VolumeAnalysisDashboard: React.FC = () => {
     setRandomSeed(42);
     setDemandTierPreset("standard");
     setArrivalDistribution("poisson");
-    setWarmupTime(5.0);
+    setWarmupTime(15.0);
     setTimeStep(0.1);
     setApproachLength(200.0);
     setLanesCount(2);
@@ -287,9 +474,53 @@ export const VolumeAnalysisDashboard: React.FC = () => {
     setShowHistoryDrawer(false);
     setShowAdvancedDrawer(false);
     fetch(`${API_BASE_URL}/api/v1/study/sweeps/${id}`)
-      .then((r) => r.json())
-      .then((data: SweepSession) => {
-        setActiveSession(data);
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status.toString()}`);
+        return r.json();
+      })
+      .then((data: unknown) => {
+        const raw = data as Record<string, unknown>;
+        const rawResults =
+          raw.results && typeof raw.results === "object"
+            ? (raw.results as Record<string, unknown>)
+            : {};
+        const runs: SweepRun[] = Array.isArray(raw.runs)
+          ? (raw.runs as SweepRun[])
+          : Array.isArray(rawResults.runs)
+            ? (rawResults.runs as SweepRun[])
+            : [];
+        const curves: SweepCurves = (raw.curves as SweepCurves | undefined) ??
+          (rawResults.curves as SweepCurves | undefined) ?? {
+            rates: [],
+            volumesVehPerHour: [],
+            signal: { delays: [], throughputs: [], queues: [] },
+            roundabout: { delays: [], throughputs: [], queues: [] },
+            crossoverArrivalRate: null,
+            crossoverHourlyVolume: null,
+          };
+        const rawSessionId =
+          typeof raw.sessionId === "string"
+            ? raw.sessionId
+            : typeof raw.id === "string"
+              ? raw.id
+              : typeof rawResults.sessionId === "string"
+                ? rawResults.sessionId
+                : id;
+        const rawName =
+          typeof raw.name === "string"
+            ? raw.name
+            : typeof rawResults.name === "string"
+              ? rawResults.name
+              : "Saved Sweep";
+        const session: SweepSession = {
+          sessionId: rawSessionId,
+          name: rawName,
+          duration: Number(raw.duration ?? rawResults.duration ?? 60),
+          randomSeed: Number(raw.randomSeed ?? rawResults.randomSeed ?? 42),
+          curves,
+          runs,
+        };
+        setActiveSession(session);
         setScrubberVolumeOverride(null);
         setLoadingSession(false);
       })
@@ -367,11 +598,56 @@ export const VolumeAnalysisDashboard: React.FC = () => {
     })
       .then((r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status.toString()}`);
-        return r.json() as Promise<SweepSession>;
+        return r.json();
       })
-      .then((data) => {
-        setActiveSession(data);
-        setSelectedId(data.sessionId);
+      .then((data: unknown) => {
+        const raw = data as Record<string, unknown>;
+        const rawResults =
+          raw.results && typeof raw.results === "object"
+            ? (raw.results as Record<string, unknown>)
+            : {};
+        const runs: SweepRun[] = Array.isArray(raw.runs)
+          ? (raw.runs as SweepRun[])
+          : Array.isArray(rawResults.runs)
+            ? (rawResults.runs as SweepRun[])
+            : [];
+        const curves: SweepCurves = (raw.curves as SweepCurves | undefined) ??
+          (rawResults.curves as SweepCurves | undefined) ?? {
+            rates: [],
+            volumesVehPerHour: [],
+            signal: { delays: [], throughputs: [], queues: [] },
+            roundabout: { delays: [], throughputs: [], queues: [] },
+            crossoverArrivalRate: null,
+            crossoverHourlyVolume: null,
+          };
+        const rawSessionId =
+          typeof raw.sessionId === "string"
+            ? raw.sessionId
+            : typeof raw.id === "string"
+              ? raw.id
+              : typeof rawResults.sessionId === "string"
+                ? rawResults.sessionId
+                : "session";
+        const rawName =
+          typeof raw.name === "string"
+            ? raw.name
+            : typeof rawResults.name === "string"
+              ? rawResults.name
+              : "Completed Sweep";
+        const session: SweepSession = {
+          sessionId: rawSessionId,
+          name: rawName,
+          duration: Number(
+            raw.duration ?? rawResults.duration ?? sweepDuration,
+          ),
+          randomSeed: Number(
+            raw.randomSeed ?? rawResults.randomSeed ?? randomSeed,
+          ),
+          curves,
+          runs,
+        };
+        setActiveSession(session);
+        setSelectedId(session.sessionId);
         setScrubberVolumeOverride(null);
         setIsRunning(false);
         fetchSweeps();
@@ -384,7 +660,7 @@ export const VolumeAnalysisDashboard: React.FC = () => {
 
   // Export CSV helper
   const exportCSV = () => {
-    if (!activeSession) return;
+    if (!activeSession || !Array.isArray(activeSession.runs)) return;
     const headers = [
       "Arrival Rate (veh/s)",
       "Hourly Volume (veh/h)",
@@ -430,50 +706,52 @@ export const VolumeAnalysisDashboard: React.FC = () => {
   const crossover = activeSession?.curves.crossoverHourlyVolume ?? null;
   const xDataKey = xAxisMode === "volume" ? "volume" : "rate";
 
+  const runsList = useMemo(() => {
+    if (activeSession && Array.isArray(activeSession.runs)) {
+      return activeSession.runs;
+    }
+    return [];
+  }, [activeSession]);
+
   // Compute quick KPI metrics
-  const roundaboutWins = activeSession
-    ? activeSession.runs.filter((r) => r.winner === "roundabout").length
-    : 0;
-  const signalWins = activeSession
-    ? activeSession.runs.filter((r) => r.winner === "signal").length
-    : 0;
-  const totalRuns = activeSession ? activeSession.runs.length : 0;
+  const roundaboutWins = runsList.filter(
+    (r) => r.winner === "roundabout",
+  ).length;
+  const signalWins = runsList.filter((r) => r.winner === "signal").length;
+  const tieWins = runsList.filter((r) => r.winner === "tie").length;
+  const totalRuns = runsList.length;
   const roundaboutWinPct =
     totalRuns > 0 ? Math.round((roundaboutWins / totalRuns) * 100) : 0;
 
   // Filtered runs for table
-  const filteredRuns = activeSession
-    ? activeSession.runs.filter((r) => {
-        if (filterWinner === "all") return true;
-        return r.winner === filterWinner;
-      })
-    : [];
+  const filteredRuns = useMemo(() => {
+    if (filterWinner === "all") return runsList;
+    return runsList.filter((r) => r.winner === filterWinner);
+  }, [runsList, filterWinner]);
 
   // Scrubber min/max & closest run computation
-  const minVol = activeSession?.runs[0]?.hourlyVolumeVehPerHour ?? 360;
-  const maxVol =
-    activeSession?.runs[activeSession.runs.length - 1]
-      ?.hourlyVolumeVehPerHour ?? 11520;
+  const minVol = runsList[0]?.hourlyVolumeVehPerHour ?? 360;
+  const maxVol = runsList[runsList.length - 1]?.hourlyVolumeVehPerHour ?? 11520;
 
   const currentScrubberVolume = useMemo(() => {
     if (scrubberVolumeOverride !== null) return scrubberVolumeOverride;
     if (activeSession?.curves.crossoverHourlyVolume) {
       return activeSession.curves.crossoverHourlyVolume;
     }
-    if (activeSession && activeSession.runs.length > 0) {
-      const midIdx = Math.floor(activeSession.runs.length / 2);
-      return activeSession.runs[midIdx].hourlyVolumeVehPerHour;
+    if (runsList.length > 0) {
+      const midIdx = Math.floor(runsList.length / 2);
+      return runsList[midIdx].hourlyVolumeVehPerHour;
     }
     return 1440;
-  }, [activeSession, scrubberVolumeOverride]);
+  }, [activeSession, scrubberVolumeOverride, runsList]);
 
   const currentScrubberRun = useMemo(() => {
-    if (!activeSession || activeSession.runs.length === 0) return null;
-    let closest = activeSession.runs[0];
+    if (runsList.length === 0) return null;
+    let closest = runsList[0];
     let minDiff = Math.abs(
       closest.hourlyVolumeVehPerHour - currentScrubberVolume,
     );
-    for (const run of activeSession.runs) {
+    for (const run of runsList) {
       const diff = Math.abs(run.hourlyVolumeVehPerHour - currentScrubberVolume);
       if (diff < minDiff) {
         minDiff = diff;
@@ -481,17 +759,15 @@ export const VolumeAnalysisDashboard: React.FC = () => {
       }
     }
     return closest;
-  }, [activeSession, currentScrubberVolume]);
+  }, [runsList, currentScrubberVolume]);
 
   const maxDelayInRuns = useMemo(() => {
-    if (!activeSession || activeSession.runs.length === 0) return 60;
+    if (runsList.length === 0) return 60;
     return Math.max(
-      ...activeSession.runs.map((r) =>
-        Math.max(r.signal.delay, r.roundabout.delay),
-      ),
+      ...runsList.map((r) => Math.max(r.signal.delay, r.roundabout.delay)),
       10,
     );
-  }, [activeSession]);
+  }, [runsList]);
 
   return (
     <div className="volume-dashboard">
@@ -1153,8 +1429,8 @@ export const VolumeAnalysisDashboard: React.FC = () => {
               </div>
               <span className="kpi-label">Max Delay Reduction</span>
               <span className="kpi-value" style={{ color: "#10b981" }}>
-                {activeSession.runs.length > 0
-                  ? `${Math.abs(Math.min(...activeSession.runs.map((r) => r.delayDeltaPercent))).toFixed(1)}%`
+                {runsList.length > 0
+                  ? `${Math.abs(Math.min(...runsList.map((r) => r.delayDeltaPercent))).toFixed(1)}%`
                   : "N/A"}
               </span>
               <span className="kpi-hint">
@@ -1386,6 +1662,29 @@ export const VolumeAnalysisDashboard: React.FC = () => {
                     </button>
                   </div>
 
+                  <div className="chart-option-pills">
+                    <button
+                      type="button"
+                      className={`option-pill-btn ${showUncertaintyBands ? "active" : ""}`}
+                      onClick={() => {
+                        setShowUncertaintyBands(!showUncertaintyBands);
+                      }}
+                      title="Toggle uncertainty envelopes (±σ std dev and [min–max] range bounds)"
+                    >
+                      ± Range Envelopes
+                    </button>
+                    <button
+                      type="button"
+                      className={`option-pill-btn ${showDeltaTrend ? "active" : ""}`}
+                      onClick={() => {
+                        setShowDeltaTrend(!showDeltaTrend);
+                      }}
+                      title="Toggle relative percentage delta comparison curve"
+                    >
+                      % Delta Trend
+                    </button>
+                  </div>
+
                   <div className="chart-axis-pills">
                     <button
                       type="button"
@@ -1517,6 +1816,54 @@ export const VolumeAnalysisDashboard: React.FC = () => {
                             animationDuration={450}
                             animationEasing="ease-out"
                           />
+                          {showUncertaintyBands && (
+                            <>
+                              <Line
+                                type="monotone"
+                                dataKey="signalDelayMax"
+                                name="Signal Upper Bound (Max / +σ)"
+                                stroke="#38bdf8"
+                                strokeDasharray="3 3"
+                                strokeOpacity={0.4}
+                                strokeWidth={1.5}
+                                dot={false}
+                                activeDot={false}
+                              />
+                              <Line
+                                type="monotone"
+                                dataKey="signalDelayMin"
+                                name="Signal Lower Bound (Min / -σ)"
+                                stroke="#38bdf8"
+                                strokeDasharray="2 2"
+                                strokeOpacity={0.3}
+                                strokeWidth={1.2}
+                                dot={false}
+                                activeDot={false}
+                              />
+                              <Line
+                                type="monotone"
+                                dataKey="roundaboutDelayMax"
+                                name="Roundabout Upper Bound (Max / +σ)"
+                                stroke="#10b981"
+                                strokeDasharray="3 3"
+                                strokeOpacity={0.4}
+                                strokeWidth={1.5}
+                                dot={false}
+                                activeDot={false}
+                              />
+                              <Line
+                                type="monotone"
+                                dataKey="roundaboutDelayMin"
+                                name="Roundabout Lower Bound (Min / -σ)"
+                                stroke="#10b981"
+                                strokeDasharray="2 2"
+                                strokeOpacity={0.3}
+                                strokeWidth={1.2}
+                                dot={false}
+                                activeDot={false}
+                              />
+                            </>
+                          )}
                         </LineChart>
                       </ResponsiveContainer>
                     ) : (
@@ -1737,6 +2084,149 @@ export const VolumeAnalysisDashboard: React.FC = () => {
                             animationDuration={450}
                             animationEasing="ease-out"
                           />
+                          {showUncertaintyBands && (
+                            <>
+                              <Line
+                                type="monotone"
+                                dataKey="signalQueueMax"
+                                name="Signal Peak Queue"
+                                stroke="#38bdf8"
+                                strokeDasharray="3 3"
+                                strokeOpacity={0.45}
+                                strokeWidth={1.5}
+                                dot={false}
+                                activeDot={false}
+                              />
+                              <Line
+                                type="monotone"
+                                dataKey="roundaboutQueueMax"
+                                name="Roundabout Peak Queue"
+                                stroke="#10b981"
+                                strokeDasharray="3 3"
+                                strokeOpacity={0.45}
+                                strokeWidth={1.5}
+                                dot={false}
+                                activeDot={false}
+                              />
+                            </>
+                          )}
+                        </LineChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <div className="chart-empty">
+                        No telemetry data recorded
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Optional Delta Trend Chart */}
+                {showDeltaTrend && (
+                  <div
+                    className="chart-card chart-card-delta-trend"
+                    style={{ gridColumn: "1 / -1" }}
+                  >
+                    <div className="chart-card-mini-header">
+                      <span className="mini-title">
+                        📈 Relative Performance Delta (% Difference)
+                      </span>
+                      <span className="mini-unit">
+                        Δ % (Objective Baseline: 0% Parity)
+                      </span>
+                    </div>
+                    {chartData.length > 0 ? (
+                      <ResponsiveContainer width="100%" height={300}>
+                        <LineChart
+                          data={chartData}
+                          margin={{ top: 16, right: 24, bottom: 12, left: 8 }}
+                        >
+                          <CartesianGrid
+                            strokeDasharray="3 3"
+                            stroke="rgba(255,255,255,0.06)"
+                          />
+                          <XAxis
+                            dataKey={xDataKey}
+                            tick={{
+                              fontSize: 12,
+                              fill: "hsl(var(--muted-foreground))",
+                            }}
+                            tickFormatter={(v: number) => v.toString()}
+                            label={{
+                              value:
+                                xAxisMode === "volume"
+                                  ? "Hourly Volume (veh/h)"
+                                  : "Arrival Rate (veh/s)",
+                              position: "insideBottom",
+                              offset: -6,
+                              fill: "hsl(var(--muted-foreground))",
+                              fontSize: 12,
+                            }}
+                          />
+                          <YAxis
+                            tick={{
+                              fontSize: 12,
+                              fill: "hsl(var(--muted-foreground))",
+                            }}
+                            label={{
+                              value: "Δ % Difference",
+                              angle: -90,
+                              position: "insideLeft",
+                              offset: 8,
+                              fill: "hsl(var(--muted-foreground))",
+                              fontSize: 12,
+                            }}
+                          />
+                          <Tooltip
+                            content={
+                              <CustomTooltip unit="%" xMode={xAxisMode} />
+                            }
+                          />
+                          <Legend
+                            wrapperStyle={{ fontSize: 13, paddingTop: 10 }}
+                          />
+                          <ReferenceLine
+                            y={0}
+                            stroke="#94a3b8"
+                            strokeDasharray="4 3"
+                            strokeWidth={2}
+                            label={{
+                              value: "Parity (0%)",
+                              position: "right",
+                              fill: "#94a3b8",
+                              fontSize: 11,
+                            }}
+                          />
+                          {crossover && xAxisMode === "volume" && (
+                            <ReferenceLine
+                              x={crossover}
+                              stroke="#f59e0b"
+                              strokeDasharray="4 3"
+                              strokeWidth={2}
+                              label={{
+                                value: `Crossover (${crossover.toLocaleString()} veh/h)`,
+                                position: "top",
+                                fill: "#f59e0b",
+                                fontSize: 11,
+                              }}
+                            />
+                          )}
+                          <Line
+                            type="monotone"
+                            dataKey="delayDeltaPercent"
+                            name="Delay Δ % (+ = Signal Advantage, - = Roundabout Advantage)"
+                            stroke="#8b5cf6"
+                            strokeWidth={2.5}
+                            dot={{ r: 4, fill: "#8b5cf6" }}
+                          />
+                          <Line
+                            type="monotone"
+                            dataKey="queueDeltaPercent"
+                            name="Queue Δ % (+ = Signal Advantage, - = Roundabout Advantage)"
+                            stroke="#f59e0b"
+                            strokeWidth={2}
+                            strokeDasharray="4 2"
+                            dot={{ r: 3, fill: "#f59e0b" }}
+                          />
                         </LineChart>
                       </ResponsiveContainer>
                     ) : (
@@ -1770,7 +2260,7 @@ export const VolumeAnalysisDashboard: React.FC = () => {
                       setFilterWinner("all");
                     }}
                   >
-                    All ({activeSession.runs.length.toString()})
+                    All ({runsList.length.toString()})
                   </button>
                   <button
                     type="button"
@@ -1789,6 +2279,15 @@ export const VolumeAnalysisDashboard: React.FC = () => {
                     }}
                   >
                     🚦 Signal ({signalWins.toString()})
+                  </button>
+                  <button
+                    type="button"
+                    className={`table-filter-btn ${filterWinner === "tie" ? "active" : ""}`}
+                    onClick={() => {
+                      setFilterWinner("tie");
+                    }}
+                  >
+                    ⚖️ Parity ({tieWins.toString()})
                   </button>
                 </div>
               </div>
@@ -1876,6 +2375,19 @@ export const VolumeAnalysisDashboard: React.FC = () => {
                                 LOS {sigLOS.grade}
                               </span>
                             </div>
+                            {run.signal.delayStdDev !== undefined && (
+                              <div
+                                style={{
+                                  fontSize: "11px",
+                                  color: "hsl(var(--muted-foreground))",
+                                  marginTop: "2px",
+                                }}
+                              >
+                                ±{run.signal.delayStdDev.toFixed(1)}s [
+                                {run.signal.delayMin?.toFixed(1)}–
+                                {run.signal.delayMax?.toFixed(1)}s]
+                              </div>
+                            )}
                           </td>
 
                           {/* Roundabout Delay */}
@@ -1894,6 +2406,19 @@ export const VolumeAnalysisDashboard: React.FC = () => {
                                 LOS {rndLOS.grade}
                               </span>
                             </div>
+                            {run.roundabout.delayStdDev !== undefined && (
+                              <div
+                                style={{
+                                  fontSize: "11px",
+                                  color: "hsl(var(--muted-foreground))",
+                                  marginTop: "2px",
+                                }}
+                              >
+                                ±{run.roundabout.delayStdDev.toFixed(1)}s [
+                                {run.roundabout.delayMin?.toFixed(1)}–
+                                {run.roundabout.delayMax?.toFixed(1)}s]
+                              </div>
+                            )}
                           </td>
 
                           {/* Throughput */}
@@ -1907,8 +2432,34 @@ export const VolumeAnalysisDashboard: React.FC = () => {
                           {/* Queues */}
                           <td>
                             <div className="table-multi-col">
-                              <span>🚦 {run.signal.queue.toFixed(1)}</span>
-                              <span>🔄 {run.roundabout.queue.toFixed(1)}</span>
+                              <span>
+                                🚦 {run.signal.queue.toFixed(1)}
+                                {run.signal.queueMax !== undefined && (
+                                  <span
+                                    style={{
+                                      fontSize: "10.5px",
+                                      opacity: 0.8,
+                                      marginLeft: "3px",
+                                    }}
+                                  >
+                                    (pk {run.signal.queueMax.toFixed(0)})
+                                  </span>
+                                )}
+                              </span>
+                              <span>
+                                🔄 {run.roundabout.queue.toFixed(1)}
+                                {run.roundabout.queueMax !== undefined && (
+                                  <span
+                                    style={{
+                                      fontSize: "10.5px",
+                                      opacity: 0.8,
+                                      marginLeft: "3px",
+                                    }}
+                                  >
+                                    (pk {run.roundabout.queueMax.toFixed(0)})
+                                  </span>
+                                )}
+                              </span>
                             </div>
                           </td>
 
@@ -1927,7 +2478,7 @@ export const VolumeAnalysisDashboard: React.FC = () => {
                                 ? "🔄 Roundabout"
                                 : run.winner === "signal"
                                   ? "🚦 Signal"
-                                  : "— Tie"}
+                                  : "⚖️ Parity"}
                             </span>
                           </td>
 
@@ -1938,17 +2489,24 @@ export const VolumeAnalysisDashboard: React.FC = () => {
                               style={{
                                 color:
                                   run.delayDeltaPercent > 0
-                                    ? "#10b981"
+                                    ? "#38bdf8"
                                     : run.delayDeltaPercent < 0
-                                      ? "#f43f5e"
+                                      ? "#10b981"
                                       : "#94a3b8",
                                 background:
                                   run.delayDeltaPercent > 0
-                                    ? "rgba(16, 185, 129, 0.1)"
+                                    ? "rgba(56, 189, 248, 0.12)"
                                     : run.delayDeltaPercent < 0
-                                      ? "rgba(244, 63, 94, 0.1)"
-                                      : "rgba(148, 163, 184, 0.1)",
+                                      ? "rgba(16, 185, 129, 0.12)"
+                                      : "rgba(148, 163, 184, 0.12)",
                               }}
+                              title={
+                                run.delayDeltaPercent > 0
+                                  ? `+${run.delayDeltaPercent.toFixed(1)}% Signal Advantage`
+                                  : run.delayDeltaPercent < 0
+                                    ? `${run.delayDeltaPercent.toFixed(1)}% Roundabout Advantage`
+                                    : "0.0% Parity"
+                              }
                             >
                               {run.delayDeltaPercent > 0 ? "+" : ""}
                               {run.delayDeltaPercent.toFixed(1)}%

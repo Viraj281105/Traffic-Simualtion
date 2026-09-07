@@ -812,7 +812,14 @@ def get_sweep_endpoint(sweep_id: str) -> Dict[str, Any]:
         session = SweepSessionDAO.get(conn, sweep_id)
         if not session:
             raise HTTPException(status_code=404, detail="Sweep session not found")
-        return session
+        res = dict(session)
+        if isinstance(session.get("results"), dict):
+            for k, v in session["results"].items():
+                if k not in res:
+                    res[k] = v
+        if "sessionId" not in res:
+            res["sessionId"] = res.get("id", sweep_id)
+        return res
     raise HTTPException(status_code=500, detail="Database connection error")
 
 

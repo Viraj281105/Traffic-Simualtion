@@ -181,4 +181,97 @@ describe("VolumeAnalysisDashboard", () => {
       expect(rows.length).toBeGreaterThanOrEqual(3);
     });
   });
+
+  it("loads a saved sweep with nested results format without crashing", async () => {
+    const nestedPayload = {
+      id: "nested-1",
+      name: "Nested Results Sweep",
+      config: {},
+      created_at: "2026-09-01T12:00:00Z",
+      results: {
+        sessionId: "nested-1",
+        name: "Nested Results Sweep",
+        curves: MOCK_SESSION.curves,
+        runs: [
+          ...MOCK_SESSION.runs,
+          {
+            arrivalRate: 0.2,
+            hourlyVolumeVehPerHour: 720,
+            winner: "tie" as const,
+            delayDeltaPercent: 0.0,
+            signal: {
+              delay: 6.0,
+              delayStdDev: 0.5,
+              delayMin: 5.2,
+              delayMax: 6.8,
+              throughput: 50,
+              queue: 1,
+              queueMax: 2,
+            },
+            roundabout: {
+              delay: 6.1,
+              delayStdDev: 0.4,
+              delayMin: 5.5,
+              delayMax: 6.9,
+              throughput: 50,
+              queue: 1,
+              queueMax: 2,
+            },
+          },
+        ],
+      },
+    };
+
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify([
+            {
+              id: "nested-1",
+              name: "Nested Results Sweep",
+              created_at: "2026-09-01T12:00:00Z",
+            },
+          ]),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(nestedPayload), { status: 200 }),
+      );
+
+    render(<VolumeAnalysisDashboard />);
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /Saved Sweeps/i }),
+      ).toBeInTheDocument(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Saved Sweeps/i }));
+    fireEvent.click(screen.getByText("Nested Results Sweep"));
+
+    await waitFor(() =>
+      expect(screen.getByText(/Capacity Studio/i)).toBeInTheDocument(),
+    );
+
+    // Toggle uncertainty envelopes and delta trend
+    const envelopeBtn = screen.getByRole("button", {
+      name: /± Range Envelopes/i,
+    });
+    expect(envelopeBtn).toBeInTheDocument();
+    fireEvent.click(envelopeBtn);
+
+    const deltaTrendBtn = screen.getByRole("button", {
+      name: /% Delta Trend/i,
+    });
+    expect(deltaTrendBtn).toBeInTheDocument();
+    fireEvent.click(deltaTrendBtn);
+
+    // Switch to Matrix tab and check Parity filter
+    fireEvent.click(screen.getByText(/Head-to-Head Volume Matrix/i));
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /⚖️ Parity/i }),
+      ).toBeInTheDocument();
+    });
+  });
 });
