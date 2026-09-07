@@ -59,16 +59,18 @@ describe("VolumeAnalysisDashboard", () => {
     vi.stubGlobal("fetch", vi.fn());
   });
 
-  it("renders the trigger panel with Run Sweep button", () => {
+  it("renders the trigger panel with Run Sweep button", async () => {
     // Return empty sweep list
     vi.mocked(fetch).mockResolvedValueOnce(
       new Response(JSON.stringify([]), { status: 200 }),
     );
 
     render(<VolumeAnalysisDashboard />);
-    expect(
-      screen.getByText(/Traffic Volume & Capacity Analysis/i),
-    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        screen.getByText(/Traffic Volume & Capacity Analysis/i),
+      ).toBeInTheDocument(),
+    );
     expect(
       screen.getByRole("button", { name: /Run Sweep/i }),
     ).toBeInTheDocument();

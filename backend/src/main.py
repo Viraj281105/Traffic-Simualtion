@@ -1148,6 +1148,17 @@ def list_replays(limit: int = 50, offset: int = 0) -> list[Dict[str, Any]]:
     return []
 
 
+@app.get("/api/v1/replays/{replay_id}")
+def get_replay(replay_id: str) -> Dict[str, Any]:
+    init_db()
+    for conn in get_db_connection():
+        replay = ReplayDAO.get(conn, replay_id)
+        if not replay:
+            raise HTTPException(status_code=404, detail="Replay not found")
+        return replay
+    raise HTTPException(status_code=500, detail="Database connection error")
+
+
 @app.delete("/api/v1/replays/{replay_id}")
 def delete_replay(replay_id: str) -> Dict[str, Any]:
     init_db()
