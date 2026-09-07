@@ -1040,3 +1040,41 @@ body {
   border-top: 1px solid var(--border-color);
   z-index: 10;
 }
+
+/* ABSOLUTE GUARANTEED BLACK TEXT FOR DASHBOARDS IN LIGHT MODE */
+.light .volume-dashboard .sweep-field label,
+.light .volume-dashboard .preset-label,
+.light .volume-dashboard .sweep-meta,
+.light .volume-dashboard .kpi-label,
+.light .volume-dashboard .kpi-hint,
+.light .volume-dashboard .chart-metric-unit,
+.light .volume-dashboard .tooltip-name,
+.light .volume-dashboard .filter-label,
+.light .volume-dashboard .sweep-name,
+.light .volume-dashboard td,
+.light .volume-dashboard th,
+.light .validation-dashboard .validation-field label,
+.light .validation-dashboard .preset-label,
+.light .validation-dashboard .methodology-col p,
+.light .validation-dashboard .verdict-text span,
+.light .validation-dashboard .ci-range,
+.light .validation-dashboard .stats-footer-left,
+.light .validation-dashboard .table-meta-hint,
+.light .validation-dashboard td,
+.light .validation-dashboard th,
+.light .volume-dashboard h2,
+.light .volume-dashboard h3,
+.light .volume-dashboard h4,
+.light .volume-dashboard .kpi-value,
+.light .volume-dashboard .tooltip-x-val,
+.light .volume-dashboard .table-header-controls h4,
+.light .validation-dashboard h2,
+.light .validation-dashboard h3,
+.light .validation-dashboard h4,
+.light .validation-dashboard .methodology-title,
+.light .validation-dashboard .verdict-text strong,
+.light .validation-dashboard .stat-card h4,
+.light .validation-dashboard .ci-label,
+.light .validation-dashboard .runs-table-header h4 {
+  color: #000000 !important;
+}
