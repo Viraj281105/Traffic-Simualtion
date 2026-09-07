@@ -20,7 +20,7 @@ from src.core.config_models import ScenarioConfiguration
 from src.core.engine import SimulationEngine
 from src.core.enums import SimulationStatus
 from src.database.dao import RunMetricsDAO, SimulationRunDAO, SweepSessionDAO
-from src.database.db import DB_PATH, init_db
+from src.database.db import DB_PATH, get_db_connection, init_db
 from src.metrics.collector import MetricCollector
 from src.snapshot.buffer import SnapshotBuffer
 from src.snapshot.builder import SnapshotBuilder
@@ -52,7 +52,6 @@ try:
     logger.info("Database initialized successfully.")
 except Exception as e:
     logger.error(f"Failed to initialize database: {e}")
-
 
 
 # ── Health check endpoint (used by Docker HEALTHCHECK) ───────────────────────
@@ -449,6 +448,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
 }
 
 current_live_config: Dict[str, Any] = DEFAULT_CONFIG.copy()
+is_user_defined_seed: bool = False
 
 live_sim_data: Dict[str, Any] = {
     "engine": None,
@@ -484,7 +484,7 @@ def get_or_create_live_simulation() -> Dict[str, Any]:
 
 @app.post("/api/simulation/config")
 def update_simulation_config(payload: Dict[str, Any]) -> Dict[str, Any]:
-    global current_live_config, dual_sim_orchestrator
+    global current_live_config, dual_sim_orchestrator, is_user_defined_seed
     # Shutdown existing simulation if running
     if live_sim_data["engine"] is not None:
         try:
@@ -501,15 +501,18 @@ def update_simulation_config(payload: Dict[str, Any]) -> Dict[str, Any]:
             pass
         dual_sim_orchestrator = None
 
-    # Determine randomSeed (pick a fresh random integer if None or not provided)
+    # Determine randomSeed (preserve user-provided seed explicitly)
     raw_seed = payload.get("randomSeed")
     if raw_seed is not None and str(raw_seed).strip() != "":
         try:
             seed_val = int(raw_seed)
+            is_user_defined_seed = True
         except (ValueError, TypeError):
             seed_val = random.randint(1, 10000000)
+            is_user_defined_seed = False
     else:
         seed_val = random.randint(1, 10000000)
+        is_user_defined_seed = False
 
     # Compile the config dictionary based on user payload
     current_live_config = {
@@ -541,19 +544,47 @@ def update_simulation_config(payload: Dict[str, Any]) -> Dict[str, Any]:
             "arrivalDistribution": "poisson",
         },
         "controller": (
-            DEFAULT_CONFIG["controller"]
+            {
+                "straightRightDuration": float(
+                    payload.get(
+                        "greenDuration",
+                        DEFAULT_CONFIG["controller"]["straightRightDuration"],
+                    )
+                ),
+                "leftDuration": float(
+                    payload.get(
+                        "leftDuration", DEFAULT_CONFIG["controller"]["leftDuration"]
+                    )
+                ),
+                "yellowDuration": float(
+                    payload.get(
+                        "yellowDuration",
+                        DEFAULT_CONFIG["controller"]["yellowDuration"],
+                    )
+                ),
+                "allRedDuration": float(
+                    payload.get(
+                        "allRedDuration",
+                        DEFAULT_CONFIG["controller"]["allRedDuration"],
+                    )
+                ),
+            }
             if payload.get("intersectionType", "fixed_time_signal")
             == "fixed_time_signal"
             else {
                 "innerRadius": 10.0,
                 "outerRadius": 20.0,
                 "circulatingLanes": 1,
-                "criticalGap": 2.5,
-                "followUpTime": 1.5,
+                "criticalGap": float(payload.get("criticalGap", 2.5)),
+                "followUpTime": float(payload.get("followUpTime", 1.5)),
                 "entrySpeed": 5.0,
                 "circulatingSpeed": 8.0,
             }
         ),
+        "roundaboutController": {
+            "criticalGap": float(payload.get("criticalGap", 4.0)),
+            "followUpTime": float(payload.get("followUpTime", 2.5)),
+        },
         "vehicleGeneration": DEFAULT_CONFIG["vehicleGeneration"],
     }
 
@@ -579,8 +610,11 @@ def play_live_simulation() -> Dict[str, Any]:
     sim = get_or_create_live_simulation()
     engine = sim["engine"]
     if engine.status == SimulationStatus.COMPLETED:
-        # Re-randomize seed for the new run
-        current_live_config["simulation"]["randomSeed"] = random.randint(1, 10000000)
+        # Re-randomize seed for the new run only if not explicitly user-defined
+        if not is_user_defined_seed:
+            current_live_config["simulation"]["randomSeed"] = random.randint(
+                1, 10000000
+            )
         live_sim_data["engine"] = None
         sim = get_or_create_live_simulation()
         engine = sim["engine"]
@@ -592,6 +626,7 @@ def play_live_simulation() -> Dict[str, Any]:
     return {
         "status": sim["engine"].status.value.lower(),
         "message": "Live simulation started/resumed",
+        "randomSeed": current_live_config["simulation"].get("randomSeed"),
     }
 
 
@@ -643,21 +678,28 @@ def play_dual_simulation() -> Dict[str, Any]:
     orch = get_or_create_dual_orchestrator()
     status = orch.engine_signal.status
     if status == SimulationStatus.COMPLETED:
-        # Re-randomize shared seed for next dual comparison run
+        # Re-randomize shared seed for next dual comparison run only if not user-defined
         if dual_sim_orchestrator is not None:
             try:
                 dual_sim_orchestrator.stop()
             except Exception:
                 pass
         dual_sim_orchestrator = None
-        current_live_config["simulation"]["randomSeed"] = random.randint(1, 10000000)
+        if not is_user_defined_seed:
+            current_live_config["simulation"]["randomSeed"] = random.randint(
+                1, 10000000
+            )
         orch = get_or_create_dual_orchestrator()
         orch.start()
     elif status == SimulationStatus.INITIALIZED:
         orch.start()
     elif status == SimulationStatus.PAUSED:
         orch.resume()
-    return {"status": orch.get_status(), "message": "Dual simulation started/resumed"}
+    return {
+        "status": orch.get_status(),
+        "message": "Dual simulation started/resumed",
+        "randomSeed": current_live_config["simulation"].get("randomSeed"),
+    }
 
 
 @app.post("/api/simulation/dual/pause")
@@ -676,10 +718,15 @@ def reset_dual_simulation() -> Dict[str, Any]:
         except Exception:
             pass
     dual_sim_orchestrator = None
-    # Generate a fresh shared random seed for the next run
-    current_live_config["simulation"]["randomSeed"] = random.randint(1, 10000000)
+    # Generate a fresh shared random seed only if not user-defined
+    if not is_user_defined_seed:
+        current_live_config["simulation"]["randomSeed"] = random.randint(1, 10000000)
     orch = get_or_create_dual_orchestrator()
-    return {"status": orch.get_status(), "message": "Dual simulation reset"}
+    return {
+        "status": orch.get_status(),
+        "message": "Dual simulation reset",
+        "randomSeed": current_live_config["simulation"].get("randomSeed"),
+    }
 
 
 @app.get("/api/simulation/dual/status")
@@ -780,38 +827,218 @@ def get_sweep_endpoint(sweep_id: str) -> Dict[str, Any]:
         conn.close()
 
 
+class RunComparisonRequest(BaseModel):
+    runIdA: str
+    runIdB: str
+
+
 @app.get("/api/v1/study/history/runs")
 def list_simulation_runs_endpoint(
-    limit: int = 50, offset: int = 0
+    limit: int = 50,
+    offset: int = 0,
+    intersection_type: str | None = None,
+    seed: int | None = None,
+    batch_id: str | None = None,
 ) -> list[Dict[str, Any]]:
-    """Lists past simulation runs with their status and execution times."""
+    """Lists past simulation runs with their status, metrics, and filters."""
     init_db()
-    import sqlite3
-
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    try:
-        return SimulationRunDAO.list_runs(conn, limit=limit, offset=offset)
-    finally:
-        conn.close()
+    for conn in get_db_connection():
+        return SimulationRunDAO.list_runs(
+            conn,
+            limit=limit,
+            offset=offset,
+            intersection_type=intersection_type,
+            seed=seed,
+            batch_id=batch_id,
+        )
+    return []
 
 
 @app.get("/api/v1/study/history/runs/{run_id}")
 def get_simulation_run_endpoint(run_id: str) -> Dict[str, Any]:
     """Retrieves metadata and time-series metrics for a specific simulation run."""
     init_db()
-    import sqlite3
-
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    try:
+    for conn in get_db_connection():
         run = SimulationRunDAO.get(conn, run_id)
         if not run:
             raise HTTPException(status_code=404, detail="Simulation run not found")
         metrics = RunMetricsDAO.get_all_for_run(conn, run_id)
         return {"run": run, "metricsTimeline": metrics}
-    finally:
-        conn.close()
+    raise HTTPException(status_code=500, detail="Database connection error")
+
+
+@app.post("/api/v1/study/history/runs/compare")
+def compare_runs_endpoint(payload: RunComparisonRequest) -> Dict[str, Any]:
+    """Compares two historical simulation runs side-by-side with delta analysis."""
+    init_db()
+    for conn in get_db_connection():
+        run_a = SimulationRunDAO.get(conn, payload.runIdA)
+        if not run_a:
+            raise HTTPException(
+                status_code=404, detail=f"Run '{payload.runIdA}' not found"
+            )
+        run_b = SimulationRunDAO.get(conn, payload.runIdB)
+        if not run_b:
+            raise HTTPException(
+                status_code=404, detail=f"Run '{payload.runIdB}' not found"
+            )
+
+        metrics_a = run_a.get("summary_metrics", {})
+        metrics_b = run_b.get("summary_metrics", {})
+
+        delay_a = metrics_a.get("averageDelay", metrics_a.get("averageWaitTime", 0.0))
+        delay_b = metrics_b.get("averageDelay", metrics_b.get("averageWaitTime", 0.0))
+        tp_a = metrics_a.get("throughput", 0.0)
+        tp_b = metrics_b.get("throughput", 0.0)
+        queue_a = metrics_a.get("averageQueueLength", 0.0)
+        queue_b = metrics_b.get("averageQueueLength", 0.0)
+        stops_a = metrics_a.get("totalStops", 0)
+        stops_b = metrics_b.get("totalStops", 0)
+
+        delay_delta = round(delay_b - delay_a, 2)
+        delay_delta_pct = (
+            round(((delay_b - delay_a) / max(delay_a, 0.01)) * 100, 1)
+            if delay_a > 0
+            else 0.0
+        )
+        tp_delta = round(tp_b - tp_a, 1)
+        queue_delta = round(queue_b - queue_a, 1)
+        stops_delta = stops_b - stops_a
+
+        # Winner evaluation based on lower delay
+        if delay_a < delay_b:
+            winner = run_a.get("intersection_type") or payload.runIdA
+        elif delay_b < delay_a:
+            winner = run_b.get("intersection_type") or payload.runIdB
+        else:
+            winner = "tie"
+
+        return {
+            "runA": {
+                "id": payload.runIdA,
+                "intersectionType": run_a.get("intersection_type"),
+                "seed": run_a.get("random_seed"),
+                "arrivalRate": run_a.get("arrival_rate"),
+                "metrics": metrics_a,
+            },
+            "runB": {
+                "id": payload.runIdB,
+                "intersectionType": run_b.get("intersection_type"),
+                "seed": run_b.get("random_seed"),
+                "arrivalRate": run_b.get("arrival_rate"),
+                "metrics": metrics_b,
+            },
+            "comparison": {
+                "delayDelta": delay_delta,
+                "delayDeltaPercent": delay_delta_pct,
+                "throughputDelta": tp_delta,
+                "queueDelta": queue_delta,
+                "stopsDelta": stops_delta,
+                "winner": winner,
+            },
+            "identicalSeed": run_a.get("random_seed") == run_b.get("random_seed"),
+            "seed": run_a.get("random_seed")
+            if run_a.get("random_seed") == run_b.get("random_seed")
+            else None,
+        }
+    raise HTTPException(status_code=500, detail="Database connection error")
+
+
+@app.post("/api/v1/study/history/runs/{run_id}/reproduce")
+def reproduce_run_endpoint(run_id: str) -> Dict[str, Any]:
+    """Re-executes the exact run headlessly using its stored configuration and seed to verify determinism."""
+    init_db()
+    for conn in get_db_connection():
+        run = SimulationRunDAO.get(conn, run_id)
+        if not run:
+            raise HTTPException(
+                status_code=404, detail=f"Simulation run '{run_id}' not found"
+            )
+
+        config = run.get("config")
+        if not config or not isinstance(config, dict) or len(config) == 0:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Run '{run_id}' does not have a saved configuration to reproduce.",
+            )
+
+        random_seed = run.get("random_seed", 0)
+        time_step = config.get("simulation", {}).get("timeStep", 0.1)
+        duration = run.get("duration") or run.get("elapsed", 30.0)
+
+        # Clone config and ensure seed, timeStep, duration match
+        run_config = json.loads(json.dumps(config))
+        if "simulation" not in run_config:
+            run_config["simulation"] = {}
+        run_config["simulation"]["randomSeed"] = random_seed
+        run_config["simulation"]["timeStep"] = time_step
+        run_config["simulation"]["duration"] = duration
+
+        clock = Clock(time_step=time_step)
+        engine = SimulationEngine(clock, duration=duration, config=run_config)
+        controller = create_controller(run_config, engine.network)
+        engine.controller = controller
+        collector = MetricCollector(run_config)
+
+        def tick_callback() -> None:
+            controller.update(clock.time_step, engine.pool.active_vehicles)
+            collector.update(
+                clock.get_elapsed_time(),
+                engine.pool.active_vehicles,
+                engine.pool.exited_vehicles,
+                getattr(controller, "current_signals", {}),
+            )
+
+        engine.register_tick_callback(tick_callback)
+
+        steps = int(duration / time_step)
+        for _ in range(steps):
+            engine.step()
+
+        reproduced_metrics = collector.get_metrics(
+            clock.get_elapsed_time(),
+            engine.pool.active_vehicles,
+            engine.pool.exited_vehicles,
+            engine.spawner.spawned_count if engine.spawner else 0,
+        )
+
+        original_metrics = run.get("summary_metrics", {})
+
+        # Compare determinism on key metrics
+        orig_delay = original_metrics.get(
+            "averageDelay", original_metrics.get("averageWaitTime")
+        )
+        repro_delay = reproduced_metrics.get(
+            "averageDelay", reproduced_metrics.get("averageWaitTime")
+        )
+        orig_tp = original_metrics.get("throughput")
+        repro_tp = reproduced_metrics.get("throughput")
+
+        discrepancies = []
+        if orig_delay is not None and repro_delay is not None:
+            if abs(orig_delay - repro_delay) > 0.05:
+                discrepancies.append(
+                    f"Delay mismatch: original={orig_delay}, reproduced={repro_delay}"
+                )
+        if orig_tp is not None and repro_tp is not None:
+            if abs(orig_tp - repro_tp) > 0.1:
+                discrepancies.append(
+                    f"Throughput mismatch: original={orig_tp}, reproduced={repro_tp}"
+                )
+
+        is_deterministic = len(discrepancies) == 0
+
+        return {
+            "runId": run_id,
+            "seed": random_seed,
+            "intersectionType": run.get("intersection_type"),
+            "duration": duration,
+            "isDeterministic": is_deterministic,
+            "originalMetrics": original_metrics,
+            "reproducedMetrics": reproduced_metrics,
+            "discrepancies": discrepancies,
+        }
+    raise HTTPException(status_code=500, detail="Database connection error")
 
 
 @app.post("/api/v1/study/validate/repeatability")
@@ -859,40 +1086,52 @@ class SaveReplayRequest(BaseModel):
     config: Dict[str, Any]
     metrics: Dict[str, Any]
 
+
 from src.database.replay_dao import ReplayDAO
 
 
 @app.post("/api/v1/replays")
 def save_replay(payload: SaveReplayRequest) -> Dict[str, Any]:
     init_db()
-    import sqlite3
-    conn = sqlite3.connect(DB_PATH)
-    try:
+    for conn in get_db_connection():
         replay_id = ReplayDAO.save(conn, payload.name, payload.config, payload.metrics)
+        # Also persist to simulation_runs for history and reproducible comparison
+        itype = payload.config.get("geometry", {}).get("intersectionType", "unknown")
+        seed = payload.config.get("simulation", {}).get("randomSeed", 0)
+        arr_rate = payload.config.get("traffic", {}).get("arrivalRate", 0.5)
+        duration = payload.config.get("simulation", {}).get("duration", 60.0)
+        SimulationRunDAO.save(
+            conn,
+            replay_id,
+            "completed",
+            duration,
+            intersection_type=itype,
+            random_seed=seed,
+            arrival_rate=arr_rate,
+            duration=duration,
+            batch_id="replay",
+            config=payload.config,
+            summary_metrics=payload.metrics,
+        )
+        conn.commit()
         return {"status": "ok", "replay_id": replay_id}
-    finally:
-        conn.close()
+    raise HTTPException(status_code=500, detail="Database connection error")
+
 
 @app.get("/api/v1/replays")
 def list_replays(limit: int = 50, offset: int = 0) -> list[Dict[str, Any]]:
     init_db()
-    import sqlite3
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    try:
+    for conn in get_db_connection():
         return ReplayDAO.list_all(conn, limit=limit, offset=offset)
-    finally:
-        conn.close()
+    return []
+
 
 @app.delete("/api/v1/replays/{replay_id}")
 def delete_replay(replay_id: str) -> Dict[str, Any]:
     init_db()
-    import sqlite3
-    conn = sqlite3.connect(DB_PATH)
-    try:
+    for conn in get_db_connection():
         success = ReplayDAO.delete(conn, replay_id)
         if not success:
             raise HTTPException(status_code=404, detail="Replay not found")
         return {"status": "ok"}
-    finally:
-        conn.close()
+    raise HTTPException(status_code=500, detail="Database connection error")

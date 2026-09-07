@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import "./HistoryDashboard.css";
+import { API_BASE_URL } from "../config";
 
 import { RunningMetrics } from "../types/simulation";
 
@@ -8,7 +9,7 @@ export interface SavedReplay {
   name: string;
   config: {
     simulation?: { duration?: number; randomSeed?: number };
-    geometry?: { intersectionType?: string };
+    geometry?: { intersectionType?: string; laneWidth?: number };
     roads?: {
       lanesPerApproach?: {
         north?: number;
@@ -38,7 +39,7 @@ export const HistoryDashboard: React.FC<HistoryDashboardProps> = ({
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("http://localhost:8000/api/v1/replays")
+    fetch(`${API_BASE_URL}/api/v1/replays`)
       .then((res) => res.json())
       .then((data: SavedReplay[]) => {
         setReplays(data);
@@ -51,7 +52,7 @@ export const HistoryDashboard: React.FC<HistoryDashboardProps> = ({
   }, []);
 
   const confirmDelete = (id: string) => {
-    fetch(`http://localhost:8000/api/v1/replays/${id}`, {
+    fetch(`${API_BASE_URL}/api/v1/replays/${id}`, {
       method: "DELETE",
     })
       .then((res) => res.json())

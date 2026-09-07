@@ -5,6 +5,7 @@
  * Pure TypeScript — zero React imports.
  */
 import type { LiveSnapshot, DualSnapshot } from "../types/simulation";
+import { WS_BASE_URL } from "../config";
 
 const BACKOFF_DELAYS_MS = [1000, 2000, 4000, 8000, 16000, 30000];
 
@@ -28,7 +29,7 @@ export class SimulationWebSocket {
 
   constructor(
     callbacks: WebSocketCallbacks,
-    url: string = "ws://localhost:8000/ws/simulation/live",
+    url: string = `${WS_BASE_URL}/ws/simulation/live`,
   ) {
     this.callbacks = callbacks;
     this.url = url;

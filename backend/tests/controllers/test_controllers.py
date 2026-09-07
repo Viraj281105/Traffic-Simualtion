@@ -188,7 +188,10 @@ def test_fixed_time_signal_legacy_config_and_lane_intents() -> None:
     # Test _lane_turn_intent
     assert len(FixedTimeSignalController._lane_turn_intent(0, 1)) == 3
     assert FixedTimeSignalController._lane_turn_intent(0, 2) == (TurnIntent.LEFT,)
-    assert FixedTimeSignalController._lane_turn_intent(1, 2) == (TurnIntent.STRAIGHT, TurnIntent.RIGHT)
+    assert FixedTimeSignalController._lane_turn_intent(1, 2) == (
+        TurnIntent.STRAIGHT,
+        TurnIntent.RIGHT,
+    )
     assert FixedTimeSignalController._lane_turn_intent(0, 3) == (TurnIntent.LEFT,)
     assert FixedTimeSignalController._lane_turn_intent(1, 3) == (TurnIntent.STRAIGHT,)
     assert FixedTimeSignalController._lane_turn_intent(2, 3) == (TurnIntent.RIGHT,)

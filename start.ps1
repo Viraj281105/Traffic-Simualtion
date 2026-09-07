@@ -1,4 +1,22 @@
+[CmdletBinding()]
+param (
+    [switch]$Docker
+)
+
 $ErrorActionPreference = "Stop"
+
+if ($Docker) {
+    Write-Host "========================================================"
+    Write-Host "  Starting Traffic Simulation Stack in Docker"
+    Write-Host "========================================================"
+    docker compose up --build -d
+    Write-Host "Waiting for containers to become healthy..."
+    Start-Sleep -Seconds 5
+    Write-Host "Frontend Dashboard: http://localhost"
+    Write-Host "Backend API:        http://localhost:8000"
+    Start-Process "http://localhost"
+    exit 0
+}
 
 # Refresh PATH from registry so node/npm and python are always resolved
 $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")

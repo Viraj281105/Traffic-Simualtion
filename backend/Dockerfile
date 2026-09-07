@@ -22,6 +22,7 @@ ENV PYTHONPATH=/app
 # Copy source code and schemas
 COPY backend/src/ ./src/
 COPY shared/ ./shared/
+RUN mkdir -p /app/data
 
 EXPOSE 8000
 

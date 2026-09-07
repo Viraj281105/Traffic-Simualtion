@@ -261,6 +261,8 @@ desktop.ini
 output/
 results/
 *.sim.json
+study_report.csv
+study_report.json
 
 # ================================
 # Tool Caches

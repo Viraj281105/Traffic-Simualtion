@@ -75,25 +75,48 @@ In addition to system specifications, the repository maintains planning, workflo
 
 ### Running via Docker (Recommended)
 
-To run the entire system (Backend API, Frontend Dashboard, and SQLite database volume configurations) concurrently:
+Run the entire containerized system (FastAPI Simulation Engine + React Dashboard + Nginx Reverse Proxy + Persistent SQLite Data Volume):
 
 ```bash
 docker compose up --build -d
 ```
 
-- Backend API: `http://localhost:8000`
-- Frontend Dev Dashboard: `http://localhost:3000`
+- **Frontend Dashboard**: [http://localhost](http://localhost) (or [http://localhost:3000](http://localhost:3000))
+- **Backend API & Swagger Docs**: [http://localhost:8000/docs](http://localhost:8000/docs)
+- **Health Check**: [http://localhost/health](http://localhost/health)
 
-### Running Backend Manually
-
+To stop the containers:
 ```bash
-cd backend
-python -m venv .venv
-.venv\Scripts\activate          # Windows
-# source .venv/bin/activate     # macOS/Linux
-pip install -r requirements.txt
-python -m src.main
+docker compose down
 ```
+
+### Running Natively for Local Development
+
+You can run both services natively on your host machine:
+
+- **Windows One-Click Launcher**: Double-click [`run.bat`](run.bat) or run `powershell -ExecutionPolicy Bypass -File .\start.ps1`
+- **Manual Backend Setup**:
+  ```bash
+  cd backend
+  python -m venv .venv
+  .venv\Scripts\activate          # Windows
+  # source .venv/bin/activate     # macOS/Linux
+  pip install -r requirements.txt
+  uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
+  ```
+- **Manual Frontend Setup**:
+  ```bash
+  cd frontend
+  npm install
+  npm run dev
+  ```
+  Visit [http://localhost:5173](http://localhost:5173).
+
+### AWS Free Tier Cloud Deployment
+
+For deploying the containerized application to an **AWS EC2 Free Tier (`t2.micro` / `t3.micro`)** instance with 2 GB Linux Swap, Nginx reverse proxying, and persistent storage, see:
+
+📖 **[AWS Free Tier Deployment Guide](docs/deployment/AWS_FREE_TIER_DEPLOYMENT.md)**
 
 ## Team
 

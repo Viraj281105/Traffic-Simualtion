@@ -13,11 +13,17 @@ backend/src/__pycache__
 **/*.pyc
 **/*.pyo
 
-# Database files
+# Database & Local Data files
+*.db
 backend/*.db
+data/
 
-# Frontend (not needed for backend container)
-frontend/
+# Frontend dependencies and builds
+frontend/node_modules
+frontend/dist
+frontend/.env.local
+
+# Documentation & internal scripts
 docs/
 scripts/
 .github/

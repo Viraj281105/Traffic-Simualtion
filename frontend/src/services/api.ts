@@ -1,10 +1,6 @@
-/**
- * REST API client for the traffic simulation backend.
- * Base URL: http://localhost:8000
- * Pure TypeScript — zero React imports.
- */
+import { API_BASE_URL } from "../config";
 
-const BASE = "http://localhost:8000";
+const BASE = API_BASE_URL;
 
 async function post(path: string): Promise<unknown> {
   const res = await fetch(`${BASE}${path}`, { method: "POST" });
@@ -86,6 +82,11 @@ export async function updateSimulationConfig(config: {
   arrivalRate?: number;
   duration?: number;
   randomSeed?: number;
+  greenDuration?: number;
+  yellowDuration?: number;
+  allRedDuration?: number;
+  criticalGap?: number;
+  followUpTime?: number;
 }): Promise<void> {
   const res = await fetch(`${BASE}/api/simulation/config`, {
     method: "POST",
@@ -100,4 +101,47 @@ export async function updateSimulationConfig(config: {
 /** Reset/stop lockstep dual simulation. */
 export async function stopDualSimulation(): Promise<void> {
   await post("/api/simulation/dual/reset");
+}
+
+// ── Study / Analytics API ──────────────────────────────────────────────────
+
+/** Trigger a new volume sweep experiment. */
+export async function runVolumeSweep(params: {
+  duration?: number;
+  random_seed?: number;
+  time_step?: number;
+}): Promise<unknown> {
+  const res = await fetch(`${BASE}/api/v1/study/sweeps/run`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(params),
+  });
+  if (!res.ok)
+    throw new Error(`HTTP ${res.status.toString()}: ${res.statusText}`);
+  return res.json();
+}
+
+/** List saved sweep sessions. */
+export async function listSweeps(limit = 20): Promise<unknown> {
+  return get(`/api/v1/study/sweeps?limit=${limit.toString()}`);
+}
+
+/** Get a specific sweep session by ID. */
+export async function getSweep(id: string): Promise<unknown> {
+  return get(`/api/v1/study/sweeps/${id}`);
+}
+
+/** Run Monte Carlo statistical validation. */
+export async function runMonteCarlo(params: {
+  num_seeds?: number;
+  duration?: number;
+}): Promise<unknown> {
+  const res = await fetch(`${BASE}/api/v1/study/validate/monte-carlo`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(params),
+  });
+  if (!res.ok)
+    throw new Error(`HTTP ${res.status.toString()}: ${res.statusText}`);
+  return res.json();
 }

@@ -33,12 +33,13 @@ class DualSimulationOrchestrator:
             self.config_signal["controller"].setdefault("allRedDuration", 2.0)
 
         # Roundabout controller needs gap-acceptance / geometry parameters
+        round_ctrl = config.get("roundaboutController", config.get("controller", {}))
         self.config_roundabout["controller"] = {
             "innerRadius": 10.0,
             "outerRadius": 20.0,
             "circulatingLanes": 1,
-            "criticalGap": 4.0,
-            "followUpTime": 2.5,
+            "criticalGap": float(round_ctrl.get("criticalGap", 4.0)),
+            "followUpTime": float(round_ctrl.get("followUpTime", 2.5)),
             "entrySpeed": 5.0,
             "circulatingSpeed": 8.0,
         }

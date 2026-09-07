@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "Traffic Control Comparison"
+description = "A cinematic, interactive landing page for comparing fixed-time signals and modern roundabouts through realistic traffic simulation and performance metrics."
+version = "1.0.0"
+id = "artifacts/traffic-control-landing"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 22894
+
+[services.development]
+run = "pnpm --filter @workspace/traffic-control-landing run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/traffic-control-landing", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/traffic-control-landing/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "22894"
+BASE_PATH = "/"

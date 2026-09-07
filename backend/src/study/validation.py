@@ -26,6 +26,36 @@ def _calculate_stats(values: List[float]) -> Dict[str, float]:
     }
 
 
+def _compare_groups(a: List[float], b: List[float]) -> Dict[str, Any]:
+    """Computes Cohen's d and a two-sample z-test significance flag (alpha=0.05)."""
+    n_a, n_b = len(a), len(b)
+    if n_a < 2 or n_b < 2:
+        return {"cohensD": 0.0, "pValue": None, "significant": False}
+
+    mean_a = sum(a) / n_a
+    mean_b = sum(b) / n_b
+    var_a = sum((x - mean_a) ** 2 for x in a) / (n_a - 1)
+    var_b = sum((x - mean_b) ** 2 for x in b) / (n_b - 1)
+
+    pooled_std = math.sqrt((var_a + var_b) / 2.0)
+    cohens_d = (mean_a - mean_b) / pooled_std if pooled_std > 0 else 0.0
+
+    # Welch z-approximation (valid for large n per group)
+    se = math.sqrt(var_a / n_a + var_b / n_b)
+    if se == 0:
+        return {"cohensD": round(cohens_d, 3), "pValue": 1.0, "significant": False}
+    z = abs(mean_a - mean_b) / se
+    # Two-tailed p-value approximation using complementary error function
+    p_value = 2.0 * (0.5 * math.erfc(z / math.sqrt(2)))
+    significant = p_value < 0.05
+
+    return {
+        "cohensD": round(cohens_d, 3),
+        "pValue": round(p_value, 4),
+        "significant": significant,
+    }
+
+
 def run_statistical_validation(
     config: Optional[Dict[str, Any]] = None,
     num_seeds: int = 5,
@@ -95,8 +125,8 @@ def run_statistical_validation(
             else 0,
         )
 
-        d_sig = m_sig.get("averageDelay", 0.0)
-        d_round = m_round.get("averageDelay", 0.0)
+        d_sig = m_sig.get("averageDelay", m_sig.get("averageWaitTime", 0.0))
+        d_round = m_round.get("averageDelay", m_round.get("averageWaitTime", 0.0))
         tp_sig = m_sig.get("throughput", 0.0)
         tp_round = m_round.get("throughput", 0.0)
         q_sig = m_sig.get("averageQueueLength", 0.0)
@@ -139,7 +169,13 @@ def run_statistical_validation(
             "throughput": _calculate_stats(round_throughputs),
             "queue": _calculate_stats(round_queues),
         },
-        "individualRuns": seed_runs,
+        "comparison": {
+            "delay": _compare_groups(sig_delays, round_delays),
+            "throughput": _compare_groups(sig_throughputs, round_throughputs),
+            "queue": _compare_groups(sig_queues, round_queues),
+        },
+        "seedRuns": seed_runs,
+        "individualRuns": seed_runs,  # backward-compat alias
     }
 
 

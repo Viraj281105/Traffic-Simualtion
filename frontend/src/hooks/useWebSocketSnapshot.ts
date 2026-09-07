@@ -10,6 +10,7 @@ import {
   stopDualSimulation,
 } from "../services/api";
 import type { ConnectionStatus } from "../services/websocket";
+import { WS_BASE_URL } from "../config";
 
 export interface WebSocketSnapshotState {
   snapshot: LiveSnapshot | DualSnapshot | null;
@@ -44,8 +45,8 @@ export function useWebSocketSnapshot(
   useEffect(() => {
     const url =
       mode === "dual"
-        ? "ws://localhost:8000/ws/simulation/dual"
-        : "ws://localhost:8000/ws/simulation/live";
+        ? `${WS_BASE_URL}/ws/simulation/dual`
+        : `${WS_BASE_URL}/ws/simulation/live`;
 
     const ws = new SimulationWebSocket(
       {

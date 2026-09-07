@@ -9,10 +9,42 @@ services:
       - HOST=0.0.0.0
       - PORT=8000
       - PYTHONPATH=/app
+      - DB_PATH=/app/data/simulation.db
+    volumes:
+      - traffic_data:/app/data
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
-      interval: 30s
+      interval: 15s
       timeout: 5s
       start_period: 10s
       retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "80:80"
+      - "3000:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:80/health"]
+      interval: 15s
+      timeout: 5s
+      start_period: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+volumes:
+  traffic_data:

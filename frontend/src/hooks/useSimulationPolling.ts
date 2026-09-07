@@ -6,8 +6,9 @@ import type {
   ControlResponse,
   SimulationStatusResponse,
 } from "../types/simulation";
+import { API_BASE_URL } from "../config";
 
-const API_BASE = "http://localhost:8000/api/simulation";
+const API_BASE = `${API_BASE_URL}/api/simulation`;
 const POLL_INTERVAL_MS = 100; // Poll every 100ms for 10 Hz simulation
 
 /**
