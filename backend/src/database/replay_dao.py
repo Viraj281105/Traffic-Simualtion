@@ -7,9 +7,14 @@ from typing import Any, Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 
-def _safe_json_loads(data: str) -> Dict[str, Any]:
+def _safe_json_loads(data: Optional[str]) -> Dict[str, Any]:
+    if not data:
+        return {}
     try:
-        return json.loads(data)
+        parsed = json.loads(data)
+        if isinstance(parsed, dict):
+            return parsed
+        return {}
     except (json.JSONDecodeError, TypeError):
         logger.warning("Failed to decode JSON from database, returning empty dict")
         return {}

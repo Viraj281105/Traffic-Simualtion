@@ -170,9 +170,11 @@ class DualSimulationOrchestrator:
                 break
 
             with self._lock:
+                sig_status: Any = self.engine_signal.status
+                round_status: Any = self.engine_roundabout.status
                 if (
-                    self.engine_signal.status == SimulationStatus.COMPLETED
-                    and self.engine_roundabout.status == SimulationStatus.COMPLETED
+                    sig_status == SimulationStatus.COMPLETED
+                    and round_status == SimulationStatus.COMPLETED
                 ):
                     break
 
@@ -244,7 +246,7 @@ class DualSimulationOrchestrator:
             and self.engine_roundabout.status == SimulationStatus.COMPLETED
         ):
             return "completed"
-        return self.engine_signal.status.value.lower()
+        return str(self.engine_signal.status.value).lower()
 
     def get_dual_snapshot(self) -> Dict[str, Any]:
         return {
