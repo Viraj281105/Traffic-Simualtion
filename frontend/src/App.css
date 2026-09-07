@@ -55,21 +55,30 @@
 
 .light {
   --background: 240 20% 98%;
-  --foreground: 236 45% 13%;
+  --foreground: 0 0% 0%;
   --border: 230 25% 90%;
   --input: 230 25% 90%;
   --ring: 249 68% 55%;
   --card: 0 0% 100%;
-  --card-foreground: 236 45% 13%;
+  --card-foreground: 0 0% 0%;
   --primary: 249 68% 55%;
   --primary-foreground: 0 0% 100%;
   --secondary: 240 20% 95%;
-  --secondary-foreground: 236 45% 13%;
+  --secondary-foreground: 0 0% 0%;
   --muted: 240 20% 95%;
-  --muted-foreground: 236 20% 25%;
+  --muted-foreground: 0 0% 0%;
   --accent: 8 86% 65%;
   --accent-foreground: 0 0% 100%;
   --shadow-glow: 0 0 54px rgba(79, 75, 207, 0.12);
+
+  --text-primary: #000000 !important;
+  --text-secondary: #000000 !important;
+  --text-muted: #000000 !important;
+}
+
+.light .brand,
+.light .brand-name {
+  color: #000000 !important;
 }
 
 /* ── Reset ──────────────────────────────────────────────────────────────── */
