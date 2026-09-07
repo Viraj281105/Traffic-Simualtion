@@ -854,3 +854,260 @@
   color: #94a3b8;
   font-size: 11px;
 }
+
+/* ── LIGHT MODE OVERRIDES ────────────────────────────────────────────────── */
+.light .volume-dashboard {
+  background: radial-gradient(
+    circle at top right,
+    var(--bg-tertiary) 0%,
+    var(--bg-primary) 100%
+  );
+  color: var(--text-primary);
+}
+.light .header-title-group h2 {
+  background: linear-gradient(90deg, hsl(215 80% 50%), hsl(260 70% 60%));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.light .header-subtitle {
+  color: var(--text-secondary);
+}
+.light .export-csv-btn {
+  background: var(--bg-tertiary);
+  border-color: var(--border-color);
+  color: var(--text-primary);
+}
+.light .export-csv-btn:hover {
+  background: var(--bg-hover);
+}
+.light .panel-header-badge h3 {
+  color: var(--accent-blue);
+}
+.light .badge-pill,
+.light .count-pill {
+  background: rgba(59, 130, 246, 0.1);
+  color: var(--accent-blue);
+  border-color: rgba(59, 130, 246, 0.2);
+}
+.light .sweep-trigger-panel,
+.light .saved-sweeps-panel,
+.light .kpi-card,
+.light .chart-card,
+.light .sweep-summary-table-wrapper,
+.light .engineering-insights-box {
+  background: var(--bg-card);
+  border-color: var(--border-color);
+  box-shadow: var(--shadow-sm);
+}
+.light .sweep-field label {
+  color: var(--text-secondary);
+}
+.light .sweep-field input[type="number"] {
+  background: var(--bg-tertiary);
+  border-color: var(--border-color);
+  color: var(--text-primary);
+}
+.light .sweep-field input[type="number"]:focus {
+  border-color: var(--accent-blue);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+}
+.light .dice-btn {
+  background: var(--bg-tertiary);
+  border-color: var(--border-color);
+  color: var(--text-primary);
+}
+.light .dice-btn:hover {
+  background: var(--bg-hover);
+}
+.light .preset-label {
+  color: var(--text-secondary);
+}
+.light .preset-tag {
+  background: var(--bg-secondary);
+  border-color: var(--border-color);
+  color: var(--text-primary);
+}
+.light .preset-tag:hover {
+  background: rgba(59, 130, 246, 0.1);
+  border-color: var(--accent-blue);
+  color: var(--accent-blue);
+}
+.light .sweep-error {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.2);
+  color: var(--accent-red);
+}
+.light .sweep-loading {
+  background: rgba(59, 130, 246, 0.1);
+  border-color: rgba(59, 130, 246, 0.2);
+  color: var(--accent-blue);
+}
+.light .spin {
+  border-color: rgba(59, 130, 246, 0.2);
+  border-top-color: var(--accent-blue);
+}
+.light .sweep-list-item {
+  background: var(--bg-tertiary);
+  border-color: var(--border-color);
+  color: var(--text-primary);
+}
+.light .sweep-list-item:hover {
+  background: var(--bg-hover);
+}
+.light .sweep-list-item.active {
+  background: rgba(59, 130, 246, 0.1);
+  border-color: var(--accent-blue);
+}
+.light .sweep-name {
+  color: var(--text-primary);
+}
+.light .sweep-meta {
+  color: var(--text-secondary);
+}
+.light .empty-saved-hint {
+  color: var(--text-secondary);
+}
+.light .kpi-label {
+  color: var(--text-secondary);
+}
+.light .kpi-value {
+  color: var(--text-primary);
+}
+.light .kpi-hint {
+  color: var(--text-secondary);
+}
+.light .crossover-badge {
+  background: rgba(255, 180, 0, 0.1);
+  border-color: rgba(255, 180, 0, 0.3);
+}
+.light .crossover-text strong {
+  color: hsl(35 90% 40%);
+}
+.light .crossover-text span {
+  color: var(--text-secondary);
+}
+.light .chart-view-toolbar {
+  background: var(--bg-card);
+  border-color: var(--border-color);
+}
+.light .toolbar-label {
+  color: var(--text-secondary);
+}
+.light .toolbar-btn {
+  background: var(--bg-tertiary);
+  border-color: var(--border-color);
+  color: var(--text-primary);
+}
+.light .toolbar-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.light .toolbar-btn.active {
+  background: var(--accent-blue);
+  color: #fff;
+}
+.light .insights-toggle-btn {
+  color: var(--text-secondary);
+  border-color: var(--border-color);
+}
+.light .insights-toggle-btn:hover {
+  color: var(--accent-yellow);
+  border-color: var(--accent-yellow);
+}
+.light .insights-header h4 {
+  color: var(--text-primary);
+}
+.light .insight-item {
+  background: var(--bg-tertiary);
+  border-color: var(--border-color);
+}
+.light .roundabout-badge {
+  background: rgba(46, 204, 64, 0.1);
+  border-color: rgba(46, 204, 64, 0.3);
+  color: var(--accent-green);
+}
+.light .signal-badge {
+  background: rgba(59, 130, 246, 0.1);
+  border-color: rgba(59, 130, 246, 0.3);
+  color: var(--accent-blue);
+}
+.light .recommendation-badge {
+  background: rgba(255, 180, 0, 0.1);
+  border-color: rgba(255, 180, 0, 0.3);
+  color: hsl(35 90% 40%);
+}
+.light .insight-item p {
+  color: var(--text-secondary);
+}
+.light .chart-card h4 {
+  color: var(--text-primary);
+}
+.light .chart-metric-unit {
+  color: var(--text-secondary);
+}
+.light .chart-empty {
+  color: var(--text-secondary);
+}
+.light .custom-chart-tooltip {
+  background: var(--bg-card);
+  border-color: var(--border-color);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-md);
+}
+.light .tooltip-header {
+  border-color: var(--border-color);
+}
+.light .tooltip-x-val {
+  color: var(--text-primary);
+}
+.light .tooltip-name {
+  color: var(--text-secondary);
+}
+.light .table-header-controls h4 {
+  color: var(--text-primary);
+}
+.light .filter-label {
+  color: var(--text-secondary);
+}
+.light .table-filter-btn {
+  background: var(--bg-tertiary);
+  border-color: var(--border-color);
+  color: var(--text-secondary);
+}
+.light .table-filter-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.light .table-filter-btn.active {
+  background: var(--accent-blue);
+  color: #fff;
+}
+.light .table-scroll-container {
+  border-color: var(--border-color);
+}
+.light .sweep-table th {
+  background: var(--bg-secondary);
+  border-color: var(--border-color);
+  color: var(--text-secondary);
+}
+.light .sweep-table td {
+  border-color: var(--border-color);
+  color: var(--text-primary);
+}
+.light .table-row:hover td {
+  background: var(--bg-hover);
+}
+.light .table-seed-val {
+  color: var(--accent-blue);
+}
+.light .winner-roundabout {
+  color: var(--accent-green);
+  background: rgba(46, 204, 64, 0.1);
+}
+.light .winner-signal {
+  color: var(--accent-blue);
+  background: rgba(59, 130, 246, 0.1);
+}
+.light .winner-tie {
+  color: var(--text-secondary);
+}

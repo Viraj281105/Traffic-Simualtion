@@ -54,22 +54,22 @@
 }
 
 .light {
-  --background: 244 53% 91%;
+  --background: 240 20% 98%;
   --foreground: 236 45% 13%;
-  --border: 237 34% 72%;
-  --input: 237 34% 72%;
+  --border: 230 25% 90%;
+  --input: 230 25% 90%;
   --ring: 249 68% 55%;
-  --card: 237 44% 21%;
-  --card-foreground: 0 0% 98%;
+  --card: 0 0% 100%;
+  --card-foreground: 236 45% 13%;
   --primary: 249 68% 55%;
   --primary-foreground: 0 0% 100%;
-  --secondary: 259 55% 68%;
+  --secondary: 240 20% 95%;
   --secondary-foreground: 236 45% 13%;
-  --muted: 242 38% 83%;
-  --muted-foreground: 236 27% 35%;
-  --accent: 8 86% 72%;
-  --accent-foreground: 236 45% 13%;
-  --shadow-glow: 0 0 54px rgba(79, 75, 207, 0.22);
+  --muted: 240 20% 95%;
+  --muted-foreground: 236 15% 45%;
+  --accent: 8 86% 65%;
+  --accent-foreground: 0 0% 100%;
+  --shadow-glow: 0 0 54px rgba(79, 75, 207, 0.12);
 }
 
 /* ── Reset ──────────────────────────────────────────────────────────────── */
@@ -126,19 +126,15 @@ body {
   background:
     radial-gradient(
       circle at 78% 0%,
-      hsl(251 70% 70% / 0.32),
+      hsl(251 70% 90% / 0.6),
       transparent 35rem
     ),
     radial-gradient(
       circle at 0% 40%,
-      hsl(187 75% 73% / 0.25),
+      hsl(187 75% 85% / 0.5),
       transparent 30rem
     ),
-    radial-gradient(
-      circle at 60% 70%,
-      hsl(8 86% 72% / 0.13),
-      transparent 26rem
-    ),
+    radial-gradient(circle at 60% 70%, hsl(8 86% 90% / 0.4), transparent 26rem),
     hsl(var(--background));
 }
 
@@ -260,9 +256,12 @@ body {
   background: rgba(13, 17, 23, 0.85);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-color);
   font-size: 12px;
   flex-shrink: 0;
+}
+.light .quick-toggles-bar {
+  background: rgba(255, 255, 255, 0.85);
 }
 
 .quick-seed-group {
@@ -364,7 +363,7 @@ body {
 .toggle-btn {
   padding: 4px 12px;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-color);
   font-size: 11px;
   font-weight: 600;
   font-family: "Inter", sans-serif;
@@ -376,9 +375,14 @@ body {
   border-color: var(--accent-green);
   color: var(--accent-green);
 }
+.light .toggle-on {
+  background: rgba(46, 204, 64, 0.15);
+  color: hsl(130 50% 40%);
+  border-color: hsl(130 50% 40%);
+}
 .toggle-off {
   background: var(--bg-tertiary);
-  border-color: var(--border);
+  border-color: var(--border-color);
   color: var(--text-muted);
 }
 
@@ -671,6 +675,14 @@ body {
   border-color: var(--accent-blue);
   color: var(--accent-blue);
 }
+.light .pb-primary {
+  background: linear-gradient(
+    135deg,
+    rgba(77, 150, 255, 0.15),
+    rgba(77, 150, 255, 0.05)
+  );
+  color: hsl(215 80% 45%);
+}
 .pb-primary:hover:not(:disabled) {
   background: linear-gradient(
     135deg,
@@ -693,6 +705,15 @@ body {
   border-color: var(--accent-yellow);
   color: var(--accent-yellow);
 }
+.light .pb-secondary {
+  background: linear-gradient(
+    135deg,
+    rgba(255, 180, 0, 0.15),
+    rgba(255, 180, 0, 0.05)
+  );
+  color: hsl(35 90% 40%);
+  border-color: hsl(35 90% 40%);
+}
 .pb-secondary:hover:not(:disabled) {
   background: linear-gradient(
     135deg,
@@ -714,6 +735,14 @@ body {
   );
   border-color: var(--accent-red);
   color: var(--accent-red);
+}
+.light .pb-danger {
+  background: linear-gradient(
+    135deg,
+    rgba(255, 65, 54, 0.1),
+    rgba(255, 65, 54, 0.03)
+  );
+  color: hsl(0 80% 45%);
 }
 .pb-danger:hover:not(:disabled) {
   background: linear-gradient(
