@@ -1,6 +1,6 @@
 # Shared Contracts Layer
 
-This directory serves as the **single source of truth** for all data contracts, schemas, and API communication payloads between the Backend (Simulation Engine) and the Frontend (Visualization Dashboard).
+This directory contains the JSON Schema files shared conceptually by the backend and frontend. The backend currently loads `config.schema.json` for versioned request validation; the snapshot schemas document payload shapes but are not automatically applied to every WebSocket response.
 
 To ensure strict decoupling, it contains **zero executable code**. It defines structural formats in programming language-independent formats (JSON Schema), allowing both Python and TypeScript components to serialize, deserialize, and validate payloads reliably.
 
@@ -28,13 +28,12 @@ shared/
 Defines the parameters needed to initialize, customize, and save a simulation run.
 
 - **Intersection Layout Settings**:
-  - `lanes_north`, `lanes_south`, `lanes_east`, `lanes_west` (integer): The number of incoming lanes for each approach.
-  - `lane_width` (number): Lane width in meters (default is 3.5m).
-  - `intersection_size` (number): Size of the central conflict zone box.
+  - `simulation.duration` and `simulation.timeStep` control run length and tick size.
+  - `geometry.intersectionType` is `fixed_time_signal` or `roundabout`.
+  - `roads.laneWidth` and `roads.lanesPerApproach` describe road geometry.
+  - `traffic.arrivalRate` and `traffic.arrivalDistribution` describe demand.
 - **Simulation Controls**:
-  - `seed` (integer): Random number generator seed for deterministic and reproducible runs.
-  - `time_step` (number): Update delta time ($\Delta t$) per simulation tick (typically 0.1s for 10Hz updates).
-  - `max_duration` (number): Maximum running time in simulation seconds.
+  - `simulation.randomSeed` (integer): Random number generator seed.
 - **Physics and Car-Following Parameters (Intelligent Driver Model)**:
   - `desired_speed` ($v_0$): Ideal target speed on clear lanes.
   - `safe_time_gap` ($T$): Preferred time headway behind leading cars.
@@ -71,7 +70,7 @@ Defines properties tracked for each active vehicle:
 
 ## Schema Validation Workflow
 
-To prevent integration failures, all configuration files, REST requests, and WebSocket messages must be validated against these JSON Schemas.
+To check the schema files themselves, run the repository validator. It verifies that each JSON file is well-formed and has a `$schema` field; it does not validate arbitrary captured API messages.
 
 A Python-based validation utility is available to test schemas against mock samples:
 

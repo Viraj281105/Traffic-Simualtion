@@ -1,6 +1,6 @@
 # Project GitHub Issues Breakdown
 
-This directory contains the deconstructed **atomic GitHub Issues** representing engineering tasks for the **Traffic Intersection Control Comparison Framework**. The issues are partitioned across files corresponding to logical milestones and development phases.
+This directory contains the historical atomic GitHub Issues used to plan the project. They are not a current implementation checklist; several describe proposed files or behavior that changed during development. Use [the operations guide](../operations.md) and tests for current behavior.
 
 ## Issue Documents Index
 

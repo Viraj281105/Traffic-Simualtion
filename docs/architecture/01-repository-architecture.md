@@ -2,14 +2,14 @@
 
 > **Document Version:** 0.1.0
 > **Last Updated:** 2026-07-23
-> **Status:** Phase 0 — Architecture Specification
+> **Status:** Current implementation reference (audited 2026-09-07)
 > **Owner:** Architecture Team
 
 ---
 
 ## 1. Overview
 
-This document defines the top-level repository structure for the **Traffic Intersection Control Comparison Framework**. The repository is organized as a **monorepo** with strict separation between Backend, Frontend, and Shared layers.
+This document describes the checked-in repository structure. It supersedes the original phase-zero proposal where they differ. For setup, payload examples, routes, database behavior, and study commands, see [../operations.md](../operations.md).
 
 Two developers work independently:
 
@@ -30,17 +30,12 @@ traffic-intersection-control-comparison/
 │
 ├── backend/                    # Simulation engine and API server
 │   ├── src/                    # All backend source code
-│   │   ├── api/                # HTTP and WebSocket endpoints
-│   │   ├── config/             # Configuration loading and validation
 │   │   ├── controllers/        # Intersection control strategies
 │   │   ├── core/               # Simulation loop and orchestration
-│   │   ├── events/             # Event bus and event definitions
 │   │   ├── intersection/       # Intersection geometry and state
 │   │   ├── metrics/            # Metric computation engine
 │   │   ├── roads/              # Road network and lane modeling
-│   │   ├── simulation/         # Simulation lifecycle management
 │   │   ├── snapshot/           # Snapshot serialization and emission
-│   │   ├── utils/              # Shared backend utilities
 │   │   └── vehicles/           # Vehicle models and physics (IDM)
 │   ├── tests/                  # All backend tests
 │   │   ├── unit/               # Unit tests per module
@@ -108,10 +103,6 @@ traffic-intersection-control-comparison/
 │   ├── validate-schemas.sh     # JSON Schema validation
 │   └── README.md               # Scripts documentation
 │
-├── examples/                   # Example configurations and outputs
-│   ├── configs/                # Sample scenario configurations
-│   ├── snapshots/              # Sample snapshot payloads
-│   └── README.md               # Examples documentation
 │
 ├── .github/                    # GitHub-specific configuration
 │   ├── ISSUE_TEMPLATE/         # Issue templates
@@ -198,7 +189,7 @@ graph TD
 | Backend Runtime | Python 3.11+ | Strong scientific computing ecosystem; IDM physics modeling |
 | Backend API | FastAPI | Async support, WebSocket native, auto-generated OpenAPI docs |
 | Frontend Runtime | Node.js 18+ | Standard for React tooling |
-| Frontend Framework | React 18+ with TypeScript | Component-based UI, strong typing, rich ecosystem |
+| Frontend Framework | React 19 with TypeScript | Component-based UI and strong typing |
 | Frontend Build | Vite | Fast HMR, native ESM, minimal config |
 | Shared Format | JSON Schema (Draft 2020-12) | Language-agnostic, machine-validatable, self-documenting |
 | Rendering | HTML5 Canvas | Direct pixel control for vehicle animation and interpolation |

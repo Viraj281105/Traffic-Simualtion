@@ -1,6 +1,6 @@
 # Automation & Development Scripts
 
-This directory houses development utilities, database seed scripts, schema validators, and automation tools to streamline workspace setup, GitHub project management, and quality control.
+This directory contains schema validation, study execution, and optional GitHub project-management utilities. The scripts are not required to run the API or frontend.
 
 ---
 
@@ -11,7 +11,7 @@ scripts/
 ├── assign_issues.py              # Automation to assign GitHub Issues to developers
 ├── push_everything_to_github.py # Git orchestration helper to sync commits/branches
 ├── set_milestone_deadlines.py    # GitHub Milestone timeline configuration runner
-├── setup_github.py               # Repository bootsrapper (creates labels, milestones, issues)
+├── setup_github.py               # Creates GitHub labels, milestones, and issues
 ├── validate-schemas.sh           # Bash wrapper for CI/CD schema validation
 ├── validate_schemas.py           # Core validation script using JSON Schema engine
 └── README.md                     # This documentation file
@@ -27,7 +27,7 @@ Ensures data integrity for configuration and snapshot contracts across Backend/F
 
 #### Core Validator: [`validate_schemas.py`](./validate_schemas.py)
 
-Uses the `jsonschema` library to programmatically validate example payloads (e.g., config templates or engine output states) against schemas defined in the `shared/schemas/` directory.
+Checks that every JSON file in `shared/schemas/` is valid JSON and contains a `$schema` field. It does not validate example payloads and does not require the `jsonschema` package.
 
 - **Requirements**: `jsonschema`, `json`
 - **Execution**:
@@ -53,7 +53,7 @@ Automates project management overhead using the GitHub REST API.
 
 #### Repository Bootstrap: [`setup_github.py`](./setup_github.py)
 
-Automatically creates custom GitHub Issue Labels (with HSL colors), Milestones (timelines), and registers the full suite of 61 deconstructed engineering backlog issues under their corresponding categories.
+Creates the repository's configured GitHub labels, milestones, and issue definitions. Review the script before running it because it makes remote changes.
 
 - **Requirements**: `requests`
 - **Environment Setup**:
@@ -69,7 +69,7 @@ Automatically creates custom GitHub Issue Labels (with HSL colors), Milestones (
 
 #### Issue Assigner: [`assign_issues.py`](./assign_issues.py)
 
-Partitions backlog tasks programmatically by assigning the appropriate frontend tasks to Khushi Kashyap and simulation/physics tasks to Viraj Jadhao.
+Assigns configured GitHub issues to the users defined by the script.
 
 - **Execution**:
   ```bash
@@ -78,7 +78,7 @@ Partitions backlog tasks programmatically by assigning the appropriate frontend 
 
 #### Milestone Deadlines: [`set_milestone_deadlines.py`](./set_milestone_deadlines.py)
 
-Configures start and target dates for project Milestones (Phase 1, Phase 2, Phase 3, Phase 4) on GitHub to keep progress tracked against scheduled deadlines.
+Configures start and target dates for project milestones on GitHub.
 
 - **Execution**:
   ```bash

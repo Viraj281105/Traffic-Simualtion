@@ -18,15 +18,14 @@ This project simulates and compares two intersection control strategies to deter
 The project is organized as a monorepo with strict separation between Backend (Simulation Engine) and Frontend (Visualization Dashboard). Both communicate through shared data contracts.
 
 ```
-├── [backend/](backend/README.md)       → Simulation engine, metrics, API (Python + FastAPI)
-├── [frontend/](frontend/README.md)      → Dashboard, visualization, charts (React + TypeScript + Vite)
-├── [shared/](shared/README.md)        → Data contracts, schemas, types (JSON Schema)
-├── docs/          → Architecture specifications and project documentation
-├── [scripts/](scripts/README.md)       → Development automation
-└── examples/      → Sample configurations and outputs
+├── [backend/](backend/README.md)       → Simulation engine, metrics, API, SQLite (Python + FastAPI)
+├── [frontend/](frontend/README.md)      → Landing page and simulation dashboard (React + TypeScript + Vite)
+├── [shared/](shared/README.md)        → JSON Schema contracts
+├── docs/          → Runtime operations, architecture, decisions, deployment, and planning
+└── [scripts/](scripts/README.md)       → Study, schema, and GitHub automation
 ```
 
-See the [Architecture Documents](docs/architecture/) for detailed specifications.
+See the [Operations and API guide](docs/operations.md) for current behavior. Architecture documents describe the checked-in implementation; ADRs and issue files may preserve historical planning context.
 
 ## Architecture Documents
 
@@ -38,7 +37,7 @@ See the [Architecture Documents](docs/architecture/) for detailed specifications
 | 04  | [Shared Contract Layer](docs/architecture/04-shared-contract-layer.md)            | Contract ownership and versioning        |
 | 05  | [Snapshot Contract](docs/architecture/05-snapshot-contract.md)                    | Real-time simulation state schema        |
 | 06  | [Scenario Configuration](docs/architecture/06-scenario-configuration-contract.md) | Simulation configuration schema          |
-| 07  | [Metric Contract](docs/architecture/07-metric-contract.md)                        | 10 metrics with mathematical definitions |
+| 07  | [Metric Contract](docs/architecture/07-metric-contract.md)                        | Current metric keys and implementation ownership |
 | 08  | [Communication Contract](docs/architecture/08-communication-contract.md)          | REST + WebSocket API design              |
 | 09  | [Engineering Standards](docs/architecture/09-engineering-standards.md)            | Naming, Git workflow, code quality       |
 | 10  | [Repository Bootstrap](docs/architecture/10-repository-bootstrap.md)              | Labels, milestones, initial issues       |
@@ -81,7 +80,8 @@ Run the entire containerized system (FastAPI Simulation Engine + React Dashboard
 docker compose up --build -d
 ```
 
-- **Frontend Dashboard**: [http://localhost](http://localhost) (or [http://localhost:3000](http://localhost:3000))
+- **Frontend landing page**: [http://localhost](http://localhost) (or [http://localhost:3000](http://localhost:3000))
+- **Simulation dashboard**: [http://localhost/app.html](http://localhost/app.html)
 - **Backend API & Swagger Docs**: [http://localhost:8000/docs](http://localhost:8000/docs)
 - **Health Check**: [http://localhost/health](http://localhost/health)
 
@@ -110,7 +110,7 @@ You can run both services natively on your host machine:
   npm install
   npm run dev
   ```
-  Visit [http://localhost:5173](http://localhost:5173).
+  Visit [http://localhost:5173](http://localhost:5173) for the landing page or [http://localhost:5173/app.html](http://localhost:5173/app.html) for the dashboard.
 
 ### AWS Free Tier Cloud Deployment
 

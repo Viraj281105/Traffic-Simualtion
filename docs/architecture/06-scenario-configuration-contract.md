@@ -2,7 +2,7 @@
 
 > **Document Version:** 0.1.0
 > **Last Updated:** 2026-07-23
-> **Status:** Phase 0 — Architecture Specification
+> **Status:** Current schema reference (audited 2026-09-07)
 > **Owner:** Both Developers (jointly)
 
 ---
@@ -19,7 +19,7 @@ A **Scenario Configuration** is a JSON document that fully describes a simulatio
 - Which metrics to collect
 - Visualization preferences
 
-The frontend submits this configuration to the backend via REST API. The backend validates it against `config.schema.json` and uses it to initialize the simulation.
+The versioned API accepts this configuration over REST and validates it against `shared/schemas/config.schema.json`. The dashboard's compact `/api/simulation/config` payload is expanded by `backend/src/main.py`; it is documented separately in [../operations.md](../operations.md).
 
 ### Design Principles
 
@@ -84,7 +84,7 @@ The frontend submits this configuration to the backend via REST API. The backend
 |---|-------|------|----------|---------|-------------|------------|
 | 1 | `approachLength` | `number` | ❌ | `200` | Length of each approach arm | > 50, ≤ 1000 meters |
 | 2 | `laneWidth` | `number` | ❌ | `3.5` | Width of each lane | > 2.5, ≤ 5.0 meters |
-| 3 | `lanesPerApproach` | `integer` | ❌ | `2` | Number of lanes per approach arm | ≥ 1, ≤ 4 |
+| 3 | `lanesPerApproach` | `object` | ❌ | — | Per-direction lane counts in the current engine configuration | See schema and operations guide |
 | 4 | `speedLimit` | `number` | ❌ | `13.89` | Speed limit on approach roads | > 0, ≤ 30 m/s (≈108 km/h) |
 | 5 | `approaches` | `array<ApproachConfig>` | ❌ | All 4 directions | Per-approach overrides | See below |
 
