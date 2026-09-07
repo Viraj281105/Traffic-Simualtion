@@ -33,7 +33,11 @@ export function computeWeightedScore(
 
   // Normalized components (0.0 to 1.0)
   const waitNorm = Math.max(0, 1 - metrics.averageWaitTime / 60.0);
-  const tpNorm = Math.min(1, metrics.throughputRate / 2.0);
+  const tpPerSec =
+    metrics.throughputRate > 2.0
+      ? metrics.throughputRate / 60.0
+      : metrics.throughputRate;
+  const tpNorm = Math.min(1, tpPerSec / 2.0);
   const queueNorm = Math.max(0, 1 - metrics.averageQueueLength / 15.0);
   const fairnessNorm = Math.max(
     0,

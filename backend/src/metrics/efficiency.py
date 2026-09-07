@@ -18,8 +18,9 @@ def calculate_master_efficiency_score(metrics: Dict[str, Any]) -> float:
     idle_loss = float(metrics.get("idleOpportunityLoss", 0.0))
 
     # Normalization mappings to prevent runaway bounds
-    # Throughput rate: normalize against a high limit of 2.0 vehicles/sec
-    tp_norm = min(1.0, throughput_rate / 2.0)
+    # Throughput rate: normalize against a high limit of 2.0 vehicles/sec (120 veh/min)
+    tp_per_sec = throughput_rate / 60.0 if throughput_rate > 2.0 else throughput_rate
+    tp_norm = min(1.0, tp_per_sec / 2.0)
 
     # Average wait time: normalized (1.0 at 0s, 0.0 at 60s or more wait)
     wait_norm = max(0.0, 1.0 - (avg_wait / 60.0))
