@@ -11,7 +11,7 @@
   height: 100%;
   overflow-y: auto;
   background: radial-gradient(circle at top right, #111a2e 0%, #0a0f18 100%);
-  color: #e2e8f0;
+  color: var(--text-primary);
   box-sizing: border-box;
 }
 
@@ -41,7 +41,7 @@
 .header-subtitle {
   margin: 4px 0 0;
   font-size: 12.5px;
-  color: #94a3b8;
+  color: var(--text-secondary);
   max-width: 880px;
   line-height: 1.4;
 }
@@ -140,7 +140,7 @@
 
 .sweep-field label {
   font-size: 11px;
-  color: #94a3b8;
+  color: var(--text-secondary);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -150,7 +150,7 @@
   background: #0f172a;
   border: 1px solid #1e293b;
   border-radius: 6px;
-  color: #f1f5f9;
+  color: var(--text-primary);
   padding: 7px 10px;
   font-size: 13px;
   width: 100%;
@@ -195,14 +195,14 @@
 
 .preset-label {
   font-size: 11px;
-  color: #64748b;
+  color: var(--text-secondary);
   font-weight: 500;
 }
 
 .preset-tag {
   background: rgba(30, 41, 59, 0.8);
   border: 1px solid rgba(255, 255, 255, 0.08);
-  color: #cbd5e1;
+  color: var(--text-secondary);
   border-radius: 6px;
   padding: 3px 8px;
   font-size: 11px;
@@ -331,12 +331,12 @@
 .sweep-name {
   font-size: 12.5px;
   font-weight: 600;
-  color: #f1f5f9;
+  color: var(--text-primary);
 }
 
 .sweep-meta {
   font-size: 11px;
-  color: #64748b;
+  color: var(--text-secondary);
 }
 
 .active-tag {
@@ -354,7 +354,7 @@
   align-items: center;
   justify-content: center;
   min-height: 70px;
-  color: #64748b;
+  color: var(--text-secondary);
   font-size: 12px;
   text-align: center;
 }
@@ -400,7 +400,7 @@
 .kpi-label {
   font-size: 11px;
   font-weight: 600;
-  color: #94a3b8;
+  color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
@@ -408,12 +408,12 @@
 .kpi-value {
   font-size: 17px;
   font-weight: 700;
-  color: #f8fafc;
+  color: var(--text-primary);
 }
 
 .kpi-hint {
   font-size: 11px;
-  color: #64748b;
+  color: var(--text-secondary);
   line-height: 1.3;
 }
 
@@ -444,7 +444,7 @@
 
 .crossover-text span {
   font-size: 12.5px;
-  color: #cbd5e1;
+  color: var(--text-secondary);
   line-height: 1.5;
   display: inline-block;
   margin-top: 4px;
@@ -475,14 +475,14 @@
 .toolbar-label {
   font-size: 11.5px;
   font-weight: 600;
-  color: #94a3b8;
+  color: var(--text-secondary);
   margin-right: 4px;
 }
 
 .toolbar-btn {
   background: rgba(30, 41, 59, 0.7);
   border: 1px solid rgba(255, 255, 255, 0.08);
-  color: #cbd5e1;
+  color: var(--text-secondary);
   border-radius: 6px;
   padding: 5px 11px;
   font-size: 12px;
@@ -505,7 +505,7 @@
 .insights-toggle-btn {
   background: transparent;
   border: 1px dashed rgba(255, 255, 255, 0.2);
-  color: #94a3b8;
+  color: var(--text-secondary);
   border-radius: 6px;
   padding: 5px 12px;
   font-size: 11.5px;
@@ -533,7 +533,7 @@
 .insights-header h4 {
   margin: 0 0 12px;
   font-size: 13.5px;
-  color: #f1f5f9;
+  color: var(--text-primary);
 }
 
 .insights-grid {
@@ -586,7 +586,7 @@
 .insight-item p {
   margin: 0;
   font-size: 12px;
-  color: #94a3b8;
+  color: var(--text-secondary);
   line-height: 1.45;
 }
 
@@ -636,12 +636,12 @@
   margin: 0;
   font-size: 13.5px;
   font-weight: 600;
-  color: #f1f5f9;
+  color: var(--text-primary);
 }
 
 .chart-metric-unit {
   font-size: 11px;
-  color: #64748b;
+  color: var(--text-secondary);
 }
 
 .chart-empty {
@@ -649,7 +649,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #64748b;
+  color: var(--text-secondary);
   font-size: 12px;
 }
 
@@ -676,7 +676,7 @@
 
 .tooltip-x-val {
   font-weight: 700;
-  color: #f8fafc;
+  color: var(--text-primary);
 }
 
 .tooltip-winner-badge {
@@ -698,7 +698,7 @@
 
 .tooltip-winner-badge.winner-tie {
   background: rgba(148, 163, 184, 0.2);
-  color: #94a3b8;
+  color: var(--text-secondary);
 }
 
 .tooltip-metrics {
@@ -720,7 +720,7 @@
 }
 
 .tooltip-name {
-  color: #94a3b8;
+  color: var(--text-secondary);
   flex: 1;
 }
 
@@ -755,7 +755,7 @@
   margin: 0;
   font-size: 14px;
   font-weight: 600;
-  color: #f1f5f9;
+  color: var(--text-primary);
 }
 
 .table-filter-group {
@@ -766,13 +766,13 @@
 
 .filter-label {
   font-size: 11.5px;
-  color: #64748b;
+  color: var(--text-secondary);
 }
 
 .table-filter-btn {
   background: rgba(30, 41, 59, 0.7);
   border: 1px solid rgba(255, 255, 255, 0.06);
-  color: #94a3b8;
+  color: var(--text-secondary);
   border-radius: 5px;
   padding: 4px 9px;
   font-size: 11px;
@@ -813,7 +813,7 @@
 
 .sweep-summary-table-wrapper th {
   background: rgba(30, 41, 59, 0.85);
-  color: #94a3b8;
+  color: var(--text-secondary);
   font-weight: 600;
   font-size: 11px;
   text-transform: uppercase;
@@ -823,7 +823,7 @@
 
 .sweep-summary-table-wrapper td {
   font-family: "JetBrains Mono", monospace;
-  color: #cbd5e1;
+  color: var(--text-secondary);
 }
 
 .sweep-summary-table-wrapper tbody tr:hover {
@@ -851,7 +851,7 @@
 }
 
 .winner-tie {
-  color: #94a3b8;
+  color: var(--text-secondary);
   font-size: 11px;
 }
 
