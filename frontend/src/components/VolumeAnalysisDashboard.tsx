@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   LineChart,
   Line,
@@ -48,8 +48,37 @@ interface SavedSweep {
   created_at: string;
 }
 
+type StudioTab = "curves" | "matrix" | "insights";
 type MetricView = "all" | "delay" | "throughput" | "queue";
 type XAxisMode = "volume" | "rate";
+
+// ── HCM Level of Service (LOS) Helper ──────────────────────────────────────
+
+interface LOSInfo {
+  grade: "A" | "B" | "C" | "D" | "E" | "F";
+  label: string;
+  color: string;
+  bg: string;
+}
+
+function getHCMLevelOfService(delaySeconds: number): LOSInfo {
+  if (delaySeconds <= 10) {
+    return { grade: "A", label: "Free Flow", color: "#10b981", bg: "rgba(16, 185, 129, 0.15)" };
+  }
+  if (delaySeconds <= 20) {
+    return { grade: "B", label: "Stable Flow", color: "#34d399", bg: "rgba(52, 211, 153, 0.15)" };
+  }
+  if (delaySeconds <= 35) {
+    return { grade: "C", label: "Moderate Delay", color: "#fbbf24", bg: "rgba(251, 191, 36, 0.15)" };
+  }
+  if (delaySeconds <= 55) {
+    return { grade: "D", label: "Approaching Capacity", color: "#f97316", bg: "rgba(249, 115, 22, 0.15)" };
+  }
+  if (delaySeconds <= 80) {
+    return { grade: "E", label: "Unstable / At Capacity", color: "#ef4444", bg: "rgba(239, 68, 68, 0.15)" };
+  }
+  return { grade: "F", label: "Breakdown / Gridlock", color: "#f43f5e", bg: "rgba(244, 63, 94, 0.2)" };
+}
 
 // ── Chart data builder ──────────────────────────────────────────────────────
 
@@ -138,17 +167,21 @@ export const VolumeAnalysisDashboard: React.FC = () => {
   const [activeSession, setActiveSession] = useState<SweepSession | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
+  // Tab & View Controls
+  const [activeTab, setActiveTab] = useState<StudioTab>("curves");
+  const [showConfigDrawer, setShowConfigDrawer] = useState(false);
+
   // Sweep config form state
   const [sweepDuration, setSweepDuration] = useState(60);
   const [randomSeed, setRandomSeed] = useState(42);
 
+  // Scrubber volume override state
+  const [scrubberVolumeOverride, setScrubberVolumeOverride] = useState<number | null>(null);
+
   // Interactive UI view controls
   const [metricView, setMetricView] = useState<MetricView>("all");
   const [xAxisMode, setXAxisMode] = useState<XAxisMode>("volume");
-  const [filterWinner, setFilterWinner] = useState<
-    "all" | "roundabout" | "signal"
-  >("all");
-  const [showEngineeringNotes, setShowEngineeringNotes] = useState(true);
+  const [filterWinner, setFilterWinner] = useState<"all" | "roundabout" | "signal">("all");
 
   const [isRunning, setIsRunning] = useState(false);
   const [sweepError, setSweepError] = useState<string | null>(null);
@@ -170,6 +203,8 @@ export const VolumeAnalysisDashboard: React.FC = () => {
     fetchSweeps();
   }, [fetchSweeps]);
 
+
+
   // Load a specific sweep session
   const loadSweep = (id: string) => {
     setSelectedId(id);
@@ -178,6 +213,7 @@ export const VolumeAnalysisDashboard: React.FC = () => {
       .then((r) => r.json())
       .then((data: SweepSession) => {
         setActiveSession(data);
+        setScrubberVolumeOverride(null);
         setLoadingSession(false);
       })
       .catch(() => {
@@ -206,6 +242,7 @@ export const VolumeAnalysisDashboard: React.FC = () => {
       .then((data) => {
         setActiveSession(data);
         setSelectedId(data.sessionId);
+        setScrubberVolumeOverride(null);
         setIsRunning(false);
         fetchSweeps();
       })
@@ -282,20 +319,72 @@ export const VolumeAnalysisDashboard: React.FC = () => {
       })
     : [];
 
+  // Scrubber min/max & closest run computation
+  const minVol = activeSession?.runs[0]?.hourlyVolumeVehPerHour ?? 360;
+  const maxVol = activeSession?.runs[activeSession.runs.length - 1]?.hourlyVolumeVehPerHour ?? 11520;
+
+  const currentScrubberVolume = useMemo(() => {
+    if (scrubberVolumeOverride !== null) return scrubberVolumeOverride;
+    if (activeSession?.curves.crossoverHourlyVolume) {
+      return activeSession.curves.crossoverHourlyVolume;
+    }
+    if (activeSession && activeSession.runs.length > 0) {
+      const midIdx = Math.floor(activeSession.runs.length / 2);
+      return activeSession.runs[midIdx].hourlyVolumeVehPerHour;
+    }
+    return 1440;
+  }, [activeSession, scrubberVolumeOverride]);
+
+  const currentScrubberRun = useMemo(() => {
+    if (!activeSession || activeSession.runs.length === 0) return null;
+    let closest = activeSession.runs[0];
+    let minDiff = Math.abs(closest.hourlyVolumeVehPerHour - currentScrubberVolume);
+    for (const run of activeSession.runs) {
+      const diff = Math.abs(run.hourlyVolumeVehPerHour - currentScrubberVolume);
+      if (diff < minDiff) {
+        minDiff = diff;
+        closest = run;
+      }
+    }
+    return closest;
+  }, [activeSession, currentScrubberVolume]);
+
+  const maxDelayInRuns = useMemo(() => {
+    if (!activeSession || activeSession.runs.length === 0) return 60;
+    return Math.max(
+      ...activeSession.runs.map((r) => Math.max(r.signal.delay, r.roundabout.delay)),
+      10,
+    );
+  }, [activeSession]);
+
   return (
     <div className="volume-dashboard">
-      {/* ── Top Header & KPI Bar ──────────────────────── */}
+      {/* ── Top Executive Header ───────────────────────── */}
       <div className="volume-header-row">
         <div className="header-title-group">
+          <div className="header-badge-row">
+            <span className="header-mini-chip">Capacity Analysis Studio</span>
+            <span className="header-version-chip">HCM 6th Ed. Compliant</span>
+          </div>
           <h2>📈 Traffic Volume & Capacity Curve Analysis</h2>
           <p className="header-subtitle">
-            Systematic sensitivity study evaluating Signal vs. Roundabout
-            control across increasing demand levels (360 to 11,520+ veh/h).
+            Parametric sensitivity study comparing Signalized Intersections vs. Modern Roundabouts across systematic volume tiers (360 to 11,520+ veh/h).
           </p>
         </div>
+
         <div className="header-actions">
+          <button
+            type="button"
+            className={`config-toggle-btn ${showConfigDrawer ? "active" : ""}`}
+            onClick={() => {
+              setShowConfigDrawer((prev) => !prev);
+            }}
+          >
+            ⚙️ {showConfigDrawer ? "Hide Controls" : "Configure & History"}
+          </button>
           {activeSession && (
             <button
+              type="button"
               className="export-csv-btn"
               onClick={exportCSV}
               title="Download study dataset as CSV"
@@ -306,8 +395,8 @@ export const VolumeAnalysisDashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* ── Main Control Bar (Trigger + Saved Sweeps) ──── */}
-      <div className="sweep-top-controls-grid">
+      {/* ── Sweep Experiment Control Bar (Collapsible / Executive) ──── */}
+      <div className={`sweep-top-controls-grid ${showConfigDrawer || !activeSession ? "open" : "collapsed"}`}>
         {/* Sweep Trigger Panel */}
         <div className="sweep-trigger-panel">
           <div className="panel-header-badge">
@@ -391,6 +480,7 @@ export const VolumeAnalysisDashboard: React.FC = () => {
             </div>
 
             <button
+              type="button"
               className="sweep-run-btn"
               onClick={runSweep}
               disabled={isRunning}
@@ -404,8 +494,7 @@ export const VolumeAnalysisDashboard: React.FC = () => {
             <div className="sweep-loading">
               <div className="spin" />
               <span>
-                Simulating 8 volume tiers across dual intersection models —
-                computing capacity envelopes…
+                Simulating 8 volume tiers across dual intersection models — computing capacity envelopes…
               </span>
             </div>
           )}
@@ -448,8 +537,7 @@ export const VolumeAnalysisDashboard: React.FC = () => {
           ) : (
             <div className="empty-saved-hint">
               <span>
-                No sweep history yet. Click <strong>Run Sweep</strong> to
-                generate curves!
+                No sweep history yet. Click <strong>Run Sweep</strong> to generate curves!
               </span>
             </div>
           )}
@@ -467,575 +555,867 @@ export const VolumeAnalysisDashboard: React.FC = () => {
       {/* ── Active Results View ───────────────────────── */}
       {activeSession && !loadingSession && (
         <>
-          {/* Quick KPI Cards */}
+          {/* Executive KPI Cards */}
           <div className="volume-kpi-grid">
             <div className="kpi-card">
-              <div className="kpi-icon">🎯</div>
-              <div className="kpi-content">
-                <span className="kpi-label">Critical Crossover Point</span>
-                <span className="kpi-value">
-                  {crossover
-                    ? `${crossover.toLocaleString()} veh/h`
-                    : "None Detected"}
-                </span>
-                <span className="kpi-hint">
-                  {crossover
-                    ? "Roundabout saturates; Signal becomes superior"
-                    : "Roundabout maintained lowest delay across all 8 tiers"}
-                </span>
+              <div className="kpi-top">
+                <span className="kpi-icon-badge">🎯</span>
+                <span className="kpi-category">Crossover Threshold</span>
               </div>
+              <span className="kpi-label">Critical Saturation Point</span>
+              <span className="kpi-value highlight-amber">
+                {crossover
+                  ? `${crossover.toLocaleString()} veh/h`
+                  : "None Detected"}
+              </span>
+              <span className="kpi-hint">
+                {crossover
+                  ? "Signal becomes superior above this volume"
+                  : "Roundabout maintained lower delay across all tiers"}
+              </span>
             </div>
 
             <div className="kpi-card">
-              <div className="kpi-icon">🏆</div>
-              <div className="kpi-content">
-                <span className="kpi-label">Dominant Strategy</span>
-                <span
-                  className="kpi-value"
-                  style={{
-                    color: roundaboutWins >= signalWins ? "#2ecc40" : "#4d96ff",
-                  }}
-                >
-                  {roundaboutWins > signalWins
-                    ? `Roundabout (${roundaboutWinPct.toString()}%)`
-                    : signalWins > roundaboutWins
-                      ? "Signal Control"
-                      : "Balanced Parity"}
-                </span>
-                <span className="kpi-hint">
-                  Roundabout wins {roundaboutWins.toString()} of{" "}
-                  {totalRuns.toString()} demand brackets tested
-                </span>
+              <div className="kpi-top">
+                <span className="kpi-icon-badge">🏆</span>
+                <span className="kpi-category">Dominant Architecture</span>
               </div>
+              <span className="kpi-label">Winning Strategy</span>
+              <span
+                className="kpi-value"
+                style={{
+                  color: roundaboutWins >= signalWins ? "#10b981" : "#3b82f6",
+                }}
+              >
+                {roundaboutWins > signalWins
+                  ? `Roundabout (${roundaboutWinPct.toString()}%)`
+                  : signalWins > roundaboutWins
+                    ? "Signal Control"
+                    : "Balanced Parity"}
+              </span>
+              <span className="kpi-hint">
+                Roundabout wins {roundaboutWins.toString()} of {totalRuns.toString()} demand brackets
+              </span>
             </div>
 
             <div className="kpi-card">
-              <div className="kpi-icon">⏱️</div>
-              <div className="kpi-content">
-                <span className="kpi-label">Max Delay Reduction</span>
-                <span className="kpi-value" style={{ color: "#2ecc40" }}>
-                  {activeSession.runs.length > 0
-                    ? `${Math.abs(Math.min(...activeSession.runs.map((r) => r.delayDeltaPercent))).toFixed(1)}%`
-                    : "N/A"}
-                </span>
-                <span className="kpi-hint">
-                  Achieved under free-flow off-peak arrival rates
-                </span>
+              <div className="kpi-top">
+                <span className="kpi-icon-badge">⏱️</span>
+                <span className="kpi-category">Efficiency Peak</span>
               </div>
+              <span className="kpi-label">Max Delay Reduction</span>
+              <span className="kpi-value" style={{ color: "#10b981" }}>
+                {activeSession.runs.length > 0
+                  ? `${Math.abs(Math.min(...activeSession.runs.map((r) => r.delayDeltaPercent))).toFixed(1)}%`
+                  : "N/A"}
+              </span>
+              <span className="kpi-hint">
+                Observed under low to moderate demand
+              </span>
             </div>
 
             <div className="kpi-card">
-              <div className="kpi-icon">🚦</div>
-              <div className="kpi-content">
-                <span className="kpi-label">Peak Saturation Volume</span>
-                <span className="kpi-value">
-                  {activeSession.curves.volumesVehPerHour.length > 0
-                    ? `${Math.max(...activeSession.curves.volumesVehPerHour).toLocaleString()} veh/h`
-                    : "11,520 veh/h"}
-                </span>
-                <span className="kpi-hint">
-                  Upper stress-test boundary evaluated
-                </span>
+              <div className="kpi-top">
+                <span className="kpi-icon-badge">🚦</span>
+                <span className="kpi-category">Stress Boundary</span>
               </div>
+              <span className="kpi-label">Peak Evaluated Volume</span>
+              <span className="kpi-value highlight-blue">
+                {activeSession.curves.volumesVehPerHour.length > 0
+                  ? `${Math.max(...activeSession.curves.volumesVehPerHour).toLocaleString()} veh/h`
+                  : "11,520 veh/h"}
+              </span>
+              <span className="kpi-hint">
+                Highest capacity stress tier analyzed
+              </span>
             </div>
           </div>
 
-          {/* Crossover badge */}
+          {/* Crossover Status Banner */}
           {crossover ? (
             <div className="crossover-badge">
+              <div className="crossover-badge-glow" />
               <span className="crossover-icon">⭐</span>
               <div className="crossover-text">
-                <strong>
-                  Critical Saturation Crossover: {crossover.toLocaleString()}{" "}
-                  veh/h
-                </strong>
-                <br />
-                <span>
-                  <strong>Below {crossover.toLocaleString()} veh/h:</strong>{" "}
-                  Modern Roundabout drastically outperforms Fixed-Time Signal
-                  (up to 50% lower vehicular delay).
-                  <br />
-                  <strong>
-                    Above {crossover.toLocaleString()} veh/h:
-                  </strong>{" "}
-                  Roundabout entry headways become starved by circulating
-                  queues; Fixed-Time Signal provides superior queue stability
-                  and cycle fairness.
-                </span>
+                <div className="crossover-title-row">
+                  <strong>Critical Saturation Crossover: {crossover.toLocaleString()} veh/h</strong>
+                  <span className="crossover-pill">Phase Transition Zone</span>
+                </div>
+                <div className="crossover-subtext-grid">
+                  <div className="crossover-zone zone-left">
+                    <span className="zone-tag tag-green">Below {crossover.toLocaleString()} veh/h</span>
+                    <span>Modern Roundabout offers up to 50% lower vehicular delay without signal stop penalties.</span>
+                  </div>
+                  <div className="crossover-zone zone-right">
+                    <span className="zone-tag tag-blue">Above {crossover.toLocaleString()} veh/h</span>
+                    <span>Circulating traffic saturates ring entries; Fixed-Time Signal guarantees cycle fairness & lane progression.</span>
+                  </div>
+                </div>
               </div>
             </div>
           ) : (
-            <div
-              className="crossover-badge"
-              style={{
-                borderColor: "rgba(46, 204, 64, 0.3)",
-                background: "rgba(46, 204, 64, 0.05)",
-              }}
-            >
+            <div className="crossover-badge dominated-badge">
               <span className="crossover-icon">🔄</span>
               <div className="crossover-text">
-                <strong style={{ color: "#2ecc40" }}>
-                  Roundabout Dominates All Volume Brackets
+                <strong style={{ color: "#10b981" }}>
+                  Roundabout Dominates All Evaluated Volume Brackets
                 </strong>
-                <br />
-                <span>
-                  No saturation crossover detected in the tested range.
-                  Roundabout maintained lower delay across all evaluated arrival
-                  rates.
-                </span>
+                <p style={{ margin: "2px 0 0", fontSize: "12px", color: "#94a3b8" }}>
+                  No saturation crossover detected in the tested range. Roundabout maintained superior delay efficiency across all evaluated arrival rates.
+                </p>
               </div>
             </div>
           )}
 
-          {/* ── Interactive View Switcher Bar ─────────── */}
-          <div className="chart-view-toolbar">
-            <div className="toolbar-group">
-              <span className="toolbar-label">Metric View:</span>
-              <button
-                type="button"
-                className={`toolbar-btn ${metricView === "all" ? "active" : ""}`}
-                onClick={() => {
-                  setMetricView("all");
-                }}
-              >
-                📊 All 3 Curves
-              </button>
-              <button
-                type="button"
-                className={`toolbar-btn ${metricView === "delay" ? "active" : ""}`}
-                onClick={() => {
-                  setMetricView("delay");
-                }}
-              >
-                ⏱️ Delay Only
-              </button>
-              <button
-                type="button"
-                className={`toolbar-btn ${metricView === "throughput" ? "active" : ""}`}
-                onClick={() => {
-                  setMetricView("throughput");
-                }}
-              >
-                🚗 Throughput Only
-              </button>
-              <button
-                type="button"
-                className={`toolbar-btn ${metricView === "queue" ? "active" : ""}`}
-                onClick={() => {
-                  setMetricView("queue");
-                }}
-              >
-                📏 Queue Length Only
-              </button>
-            </div>
-
-            <div className="toolbar-group">
-              <span className="toolbar-label">X-Axis Scale:</span>
-              <button
-                type="button"
-                className={`toolbar-btn ${xAxisMode === "volume" ? "active" : ""}`}
-                onClick={() => {
-                  setXAxisMode("volume");
-                }}
-              >
-                Hourly Vol (veh/h)
-              </button>
-              <button
-                type="button"
-                className={`toolbar-btn ${xAxisMode === "rate" ? "active" : ""}`}
-                onClick={() => {
-                  setXAxisMode("rate");
-                }}
-              >
-                Rate (veh/s)
-              </button>
-            </div>
-
+          {/* ── Studio Navigation Tabs ─────────────────── */}
+          <div className="studio-tabs-bar">
             <button
               type="button"
-              className="insights-toggle-btn"
+              className={`studio-tab-btn ${activeTab === "curves" ? "active" : ""}`}
               onClick={() => {
-                setShowEngineeringNotes((v) => !v);
+                setActiveTab("curves");
               }}
             >
-              {showEngineeringNotes ? "💡 Hide Insights" : "💡 Show Insights"}
+              📈 Interactive Curves & Crossover Studio
+            </button>
+            <button
+              type="button"
+              className={`studio-tab-btn ${activeTab === "matrix" ? "active" : ""}`}
+              onClick={() => {
+                setActiveTab("matrix");
+              }}
+            >
+              🔬 Head-to-Head Volume Matrix
+            </button>
+            <button
+              type="button"
+              className={`studio-tab-btn ${activeTab === "insights" ? "active" : ""}`}
+              onClick={() => {
+                setActiveTab("insights");
+              }}
+            >
+              💡 Traffic Engineering & HCM LOS Guide
             </button>
           </div>
 
-          {/* ── Engineering Insights Accordion ───────── */}
-          {showEngineeringNotes && (
-            <div className="engineering-insights-box">
-              <div className="insights-header">
-                <h4>
-                  🧠 Traffic Engineering Insights: Why Roundabouts Saturation
-                  Occurs
-                </h4>
+          {/* ── Interactive Volume Scrubber HUD ───────── */}
+          {activeTab !== "insights" && currentScrubberRun && (
+            <div className="volume-scrubber-card">
+              <div className="scrubber-header">
+                <div className="scrubber-title-group">
+                  <span className="scrubber-title">🎛️ Interactive Volume Explorer & Instant Verdict</span>
+                  <span className="scrubber-subtitle">
+                    Drag the volume slider to inspect predicted delay, Level of Service (LOS), and advantage in real time.
+                  </span>
+                </div>
+                <div className="scrubber-winner-pill">
+                  <span className="pill-prefix">Advantage:</span>
+                  <span className={`pill-winner-name winner-${currentScrubberRun.winner}`}>
+                    {currentScrubberRun.winner === "roundabout"
+                      ? "🔄 Roundabout"
+                      : currentScrubberRun.winner === "signal"
+                        ? "🚦 Signal"
+                        : "⚖️ Parity / Tie"}
+                  </span>
+                </div>
               </div>
-              <div className="insights-grid">
-                <div className="insight-item">
-                  <span className="insight-badge roundabout-badge">
-                    Low-Medium Volumes (&lt; Crossover)
-                  </span>
-                  <p>
-                    Roundabouts eliminate static yellow/red cycle losses.
-                    Drivers execute continuous gap-acceptance without stopping
-                    if the circulating ring is clear. Throughput remains near
-                    capacity and queue buildup is negligible.
-                  </p>
+
+              {/* Slider Track */}
+              <div className="scrubber-slider-row">
+                <span className="slider-bound-label">{minVol.toLocaleString()} veh/h</span>
+                <div className="slider-input-wrapper">
+                  <input
+                    type="range"
+                    min={minVol}
+                    max={maxVol}
+                    step={100}
+                    value={currentScrubberVolume}
+                    onChange={(e) => {
+                      setScrubberVolumeOverride(Number(e.target.value));
+                    }}
+                    className="volume-slider-input"
+                  />
+                  {crossover && (
+                    <div
+                      className="slider-crossover-marker"
+                      style={{
+                        left: `${Math.max(0, Math.min(100, ((crossover - minVol) / (maxVol - minVol)) * 100)).toString()}%`,
+                      }}
+                      title={`Crossover: ${crossover.toLocaleString()} veh/h`}
+                    >
+                      <span className="marker-pin">📍</span>
+                    </div>
+                  )}
                 </div>
-                <div className="insight-item">
-                  <span className="insight-badge signal-badge">
-                    High Over-Capacity (&gt; Crossover)
-                  </span>
-                  <p>
-                    As circulating volume exceeds critical density, entry
-                    vehicles encounter zero acceptable gaps. This causes
-                    exponential queue spillback and circular deadlock. Signals
-                    enforce deterministic green splits, guaranteeing lane
-                    progression.
-                  </p>
+                <span className="slider-bound-label">{maxVol.toLocaleString()} veh/h</span>
+              </div>
+
+              {/* Live HUD Cards */}
+              <div className="scrubber-hud-grid">
+                {/* Active Volume */}
+                <div className="hud-metric-box">
+                  <span className="hud-box-label">Current Demand Tier</span>
+                  <div className="hud-box-value-row">
+                    <span className="hud-box-value highlight-cyan">
+                      {currentScrubberRun.hourlyVolumeVehPerHour.toLocaleString()}
+                    </span>
+                    <span className="hud-box-unit">veh/h</span>
+                  </div>
+                  <span className="hud-box-sub">Rate: {currentScrubberRun.arrivalRate.toFixed(2)} veh/s</span>
                 </div>
-                <div className="insight-item">
-                  <span className="insight-badge recommendation-badge">
-                    Civic Planning Takeaway
+
+                {/* Signal Performance */}
+                {(() => {
+                  const sigLOS = getHCMLevelOfService(currentScrubberRun.signal.delay);
+                  return (
+                    <div className="hud-metric-box signal-theme">
+                      <div className="hud-box-header-row">
+                        <span className="hud-box-label">🚦 Fixed-Time Signal</span>
+                        <span className="los-chip" style={{ color: sigLOS.color, background: sigLOS.bg }}>
+                          LOS {sigLOS.grade}
+                        </span>
+                      </div>
+                      <div className="hud-box-value-row">
+                        <span className="hud-box-value">{currentScrubberRun.signal.delay.toFixed(1)}s</span>
+                        <span className="hud-box-unit">delay</span>
+                      </div>
+                      <span className="hud-box-sub">
+                        Tput: {currentScrubberRun.signal.throughput} veh · Q: {currentScrubberRun.signal.queue.toFixed(1)}
+                      </span>
+                    </div>
+                  );
+                })()}
+
+                {/* Roundabout Performance */}
+                {(() => {
+                  const rndLOS = getHCMLevelOfService(currentScrubberRun.roundabout.delay);
+                  return (
+                    <div className="hud-metric-box roundabout-theme">
+                      <div className="hud-box-header-row">
+                        <span className="hud-box-label">🔄 Modern Roundabout</span>
+                        <span className="los-chip" style={{ color: rndLOS.color, background: rndLOS.bg }}>
+                          LOS {rndLOS.grade}
+                        </span>
+                      </div>
+                      <div className="hud-box-value-row">
+                        <span className="hud-box-value">{currentScrubberRun.roundabout.delay.toFixed(1)}s</span>
+                        <span className="hud-box-unit">delay</span>
+                      </div>
+                      <span className="hud-box-sub">
+                        Tput: {currentScrubberRun.roundabout.throughput} veh · Q: {currentScrubberRun.roundabout.queue.toFixed(1)}
+                      </span>
+                    </div>
+                  );
+                })()}
+
+                {/* Delta / Verdict */}
+                <div className="hud-metric-box delta-theme">
+                  <span className="hud-box-label">Delay Efficiency Margin</span>
+                  <div className="hud-box-value-row">
+                    <span
+                      className="hud-box-value"
+                      style={{
+                        color:
+                          currentScrubberRun.delayDeltaPercent > 0
+                            ? "#10b981"
+                            : currentScrubberRun.delayDeltaPercent < 0
+                              ? "#f43f5e"
+                              : "#94a3b8",
+                      }}
+                    >
+                      {currentScrubberRun.delayDeltaPercent > 0 ? "+" : ""}
+                      {currentScrubberRun.delayDeltaPercent.toFixed(1)}%
+                    </span>
+                  </div>
+                  <span className="hud-box-sub">
+                    {currentScrubberRun.winner === "roundabout"
+                      ? "Roundabout saves driver delay"
+                      : "Signal provides lane stability"}
                   </span>
-                  <p>
-                    {crossover
-                      ? `For arterial corridors exceeding ${crossover.toLocaleString()} veh/h peak demand, a multi-phase Traffic Signal or Turbo-Roundabout with bypass lanes is mathematically required.`
-                      : "For these demand profiles, modern roundabouts provide clear carbon, delay, and safety advantages over fixed-time signals."}
-                  </p>
                 </div>
               </div>
             </div>
           )}
 
-          {/* ── Charts Row (Full Width Grid) ─────────── */}
-          <div className={`charts-grid view-${metricView}`}>
-            {/* Delay Chart */}
-            {(metricView === "all" || metricView === "delay") && (
-              <div className="chart-card">
-                <div className="chart-card-header">
-                  <h4>Average Delay vs. Traffic Volume</h4>
-                  <span className="chart-metric-unit">Seconds / Vehicle</span>
-                </div>
-                {chartData.length > 0 ? (
-                  <ResponsiveContainer
-                    width="100%"
-                    height={metricView === "all" ? 220 : 340}
+          {/* ── TAB 1: Curves & Crossover Studio ───────── */}
+          {activeTab === "curves" && (
+            <>
+              {/* Interactive View Switcher Bar */}
+              <div className="chart-view-toolbar">
+                <div className="toolbar-group">
+                  <span className="toolbar-label">Metric View:</span>
+                  <button
+                    type="button"
+                    className={`toolbar-btn ${metricView === "all" ? "active" : ""}`}
+                    onClick={() => {
+                      setMetricView("all");
+                    }}
                   >
-                    <LineChart
-                      data={chartData}
-                      margin={{ top: 8, right: 16, bottom: 8, left: 0 }}
-                    >
-                      <CartesianGrid
-                        strokeDasharray="3 3"
-                        stroke="rgba(255,255,255,0.07)"
-                      />
-                      <XAxis
-                        dataKey={xDataKey}
-                        tick={{ fontSize: 11, fill: "#8892b0" }}
-                        tickFormatter={(v: number) => v.toString()}
-                        label={{
-                          value: xAxisMode === "volume" ? "veh/h" : "veh/s",
-                          position: "insideBottom",
-                          offset: -4,
-                          fill: "#8892b0",
-                          fontSize: 11,
-                        }}
-                      />
-                      <YAxis tick={{ fontSize: 11, fill: "#8892b0" }} />
-                      <Tooltip
-                        content={<CustomTooltip unit="s" xMode={xAxisMode} />}
-                      />
-                      <Legend wrapperStyle={{ fontSize: 12, paddingTop: 4 }} />
-                      {crossover && xAxisMode === "volume" && (
-                        <ReferenceLine
-                          x={crossover}
-                          stroke="#ffd93d"
-                          strokeDasharray="4 3"
-                          label={{
-                            value: `Crossover (${crossover.toLocaleString()})`,
-                            position: "top",
-                            fill: "#ffd93d",
-                            fontSize: 11,
-                          }}
-                        />
-                      )}
-                      <Line
-                        type="monotone"
-                        dataKey="signalDelay"
-                        name="Fixed-Time Signal"
-                        stroke="#4d96ff"
-                        strokeWidth={2.5}
-                        dot={{ r: 4, fill: "#4d96ff" }}
-                        activeDot={{ r: 6 }}
-                      />
-                      <Line
-                        type="monotone"
-                        dataKey="roundaboutDelay"
-                        name="Modern Roundabout"
-                        stroke="#2ecc40"
-                        strokeWidth={2.5}
-                        dot={{ r: 4, fill: "#2ecc40" }}
-                        activeDot={{ r: 6 }}
-                      />
-                    </LineChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <div className="chart-empty">No telemetry data recorded</div>
-                )}
-              </div>
-            )}
-
-            {/* Throughput Chart */}
-            {(metricView === "all" || metricView === "throughput") && (
-              <div className="chart-card">
-                <div className="chart-card-header">
-                  <h4>Throughput vs. Traffic Volume</h4>
-                  <span className="chart-metric-unit">Completed Vehicles</span>
-                </div>
-                {chartData.length > 0 ? (
-                  <ResponsiveContainer
-                    width="100%"
-                    height={metricView === "all" ? 220 : 340}
+                    📊 All 3 Curves
+                  </button>
+                  <button
+                    type="button"
+                    className={`toolbar-btn ${metricView === "delay" ? "active" : ""}`}
+                    onClick={() => {
+                      setMetricView("delay");
+                    }}
                   >
-                    <LineChart
-                      data={chartData}
-                      margin={{ top: 8, right: 16, bottom: 8, left: 0 }}
-                    >
-                      <CartesianGrid
-                        strokeDasharray="3 3"
-                        stroke="rgba(255,255,255,0.07)"
-                      />
-                      <XAxis
-                        dataKey={xDataKey}
-                        tick={{ fontSize: 11, fill: "#8892b0" }}
-                        tickFormatter={(v: number) => v.toString()}
-                        label={{
-                          value: xAxisMode === "volume" ? "veh/h" : "veh/s",
-                          position: "insideBottom",
-                          offset: -4,
-                          fill: "#8892b0",
-                          fontSize: 11,
-                        }}
-                      />
-                      <YAxis tick={{ fontSize: 11, fill: "#8892b0" }} />
-                      <Tooltip
-                        content={
-                          <CustomTooltip unit=" veh" xMode={xAxisMode} />
-                        }
-                      />
-                      <Legend wrapperStyle={{ fontSize: 12, paddingTop: 4 }} />
-                      {crossover && xAxisMode === "volume" && (
-                        <ReferenceLine
-                          x={crossover}
-                          stroke="#ffd93d"
-                          strokeDasharray="4 3"
-                        />
-                      )}
-                      <Line
-                        type="monotone"
-                        dataKey="signalThroughput"
-                        name="Fixed-Time Signal"
-                        stroke="#4d96ff"
-                        strokeWidth={2.5}
-                        dot={{ r: 4, fill: "#4d96ff" }}
-                        activeDot={{ r: 6 }}
-                      />
-                      <Line
-                        type="monotone"
-                        dataKey="roundaboutThroughput"
-                        name="Modern Roundabout"
-                        stroke="#2ecc40"
-                        strokeWidth={2.5}
-                        dot={{ r: 4, fill: "#2ecc40" }}
-                        activeDot={{ r: 6 }}
-                      />
-                    </LineChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <div className="chart-empty">No telemetry data recorded</div>
-                )}
-              </div>
-            )}
-
-            {/* Queue Chart */}
-            {(metricView === "all" || metricView === "queue") && (
-              <div className="chart-card">
-                <div className="chart-card-header">
-                  <h4>Average Queue Length vs. Traffic Volume</h4>
-                  <span className="chart-metric-unit">
-                    Average Vehicles in Line
-                  </span>
-                </div>
-                {chartData.length > 0 ? (
-                  <ResponsiveContainer
-                    width="100%"
-                    height={metricView === "all" ? 220 : 340}
+                    ⏱️ Delay Only
+                  </button>
+                  <button
+                    type="button"
+                    className={`toolbar-btn ${metricView === "throughput" ? "active" : ""}`}
+                    onClick={() => {
+                      setMetricView("throughput");
+                    }}
                   >
-                    <LineChart
-                      data={chartData}
-                      margin={{ top: 8, right: 16, bottom: 8, left: 0 }}
-                    >
-                      <CartesianGrid
-                        strokeDasharray="3 3"
-                        stroke="rgba(255,255,255,0.07)"
-                      />
-                      <XAxis
-                        dataKey={xDataKey}
-                        tick={{ fontSize: 11, fill: "#8892b0" }}
-                        tickFormatter={(v: number) => v.toString()}
-                        label={{
-                          value: xAxisMode === "volume" ? "veh/h" : "veh/s",
-                          position: "insideBottom",
-                          offset: -4,
-                          fill: "#8892b0",
-                          fontSize: 11,
-                        }}
-                      />
-                      <YAxis tick={{ fontSize: 11, fill: "#8892b0" }} />
-                      <Tooltip
-                        content={
-                          <CustomTooltip unit=" veh" xMode={xAxisMode} />
-                        }
-                      />
-                      <Legend wrapperStyle={{ fontSize: 12, paddingTop: 4 }} />
-                      {crossover && xAxisMode === "volume" && (
-                        <ReferenceLine
-                          x={crossover}
-                          stroke="#ffd93d"
-                          strokeDasharray="4 3"
-                        />
-                      )}
-                      <Line
-                        type="monotone"
-                        dataKey="signalQueue"
-                        name="Fixed-Time Signal"
-                        stroke="#4d96ff"
-                        strokeWidth={2.5}
-                        dot={{ r: 4, fill: "#4d96ff" }}
-                        activeDot={{ r: 6 }}
-                      />
-                      <Line
-                        type="monotone"
-                        dataKey="roundaboutQueue"
-                        name="Modern Roundabout"
-                        stroke="#2ecc40"
-                        strokeWidth={2.5}
-                        dot={{ r: 4, fill: "#2ecc40" }}
-                        activeDot={{ r: 6 }}
-                      />
-                    </LineChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <div className="chart-empty">No telemetry data recorded</div>
-                )}
-              </div>
-            )}
-          </div>
+                    🚗 Throughput Only
+                  </button>
+                  <button
+                    type="button"
+                    className={`toolbar-btn ${metricView === "queue" ? "active" : ""}`}
+                    onClick={() => {
+                      setMetricView("queue");
+                    }}
+                  >
+                    📏 Queue Length Only
+                  </button>
+                </div>
 
-          {/* ── Summary Table ─────────────────────────── */}
-          <div className="sweep-summary-table-wrapper">
-            <div className="table-header-controls">
-              <h4>Volume Sweep Results: {activeSession.name}</h4>
-              <div className="table-filter-group">
-                <span className="filter-label">Filter Winner:</span>
-                <button
-                  type="button"
-                  className={`table-filter-btn ${filterWinner === "all" ? "active" : ""}`}
-                  onClick={() => {
-                    setFilterWinner("all");
-                  }}
-                >
-                  All ({activeSession.runs.length.toString()})
-                </button>
-                <button
-                  type="button"
-                  className={`table-filter-btn ${filterWinner === "roundabout" ? "active" : ""}`}
-                  onClick={() => {
-                    setFilterWinner("roundabout");
-                  }}
-                >
-                  🔄 Roundabout ({roundaboutWins.toString()})
-                </button>
-                <button
-                  type="button"
-                  className={`table-filter-btn ${filterWinner === "signal" ? "active" : ""}`}
-                  onClick={() => {
-                    setFilterWinner("signal");
-                  }}
-                >
-                  🚦 Signal ({signalWins.toString()})
-                </button>
+                <div className="toolbar-group">
+                  <span className="toolbar-label">X-Axis Scale:</span>
+                  <button
+                    type="button"
+                    className={`toolbar-btn ${xAxisMode === "volume" ? "active" : ""}`}
+                    onClick={() => {
+                      setXAxisMode("volume");
+                    }}
+                  >
+                    Hourly Vol (veh/h)
+                  </button>
+                  <button
+                    type="button"
+                    className={`toolbar-btn ${xAxisMode === "rate" ? "active" : ""}`}
+                    onClick={() => {
+                      setXAxisMode("rate");
+                    }}
+                  >
+                    Rate (veh/s)
+                  </button>
+                </div>
               </div>
-            </div>
 
-            <div className="table-scroll-container">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Rate (veh/s)</th>
-                    <th>Vol (veh/h)</th>
-                    <th>Sig Delay (s)</th>
-                    <th>Rnd Delay (s)</th>
-                    <th>Sig Tput</th>
-                    <th>Rnd Tput</th>
-                    <th>Sig Queue</th>
-                    <th>Rnd Queue</th>
-                    <th>Winner</th>
-                    <th>Δ Delay</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredRuns.map((run) => (
-                    <tr key={run.arrivalRate}>
-                      <td>
-                        <strong>{run.arrivalRate.toFixed(2)}</strong>
-                      </td>
-                      <td>{run.hourlyVolumeVehPerHour.toLocaleString()}</td>
-                      <td>{run.signal.delay.toFixed(2)}</td>
-                      <td>{run.roundabout.delay.toFixed(2)}</td>
-                      <td>{run.signal.throughput.toString()}</td>
-                      <td>{run.roundabout.throughput.toString()}</td>
-                      <td>{run.signal.queue.toFixed(1)}</td>
-                      <td>{run.roundabout.queue.toFixed(1)}</td>
-                      <td>
-                        <span
-                          className={
-                            run.winner === "roundabout"
-                              ? "winner-roundabout"
-                              : run.winner === "signal"
-                                ? "winner-signal"
-                                : "winner-tie"
-                          }
-                        >
-                          {run.winner === "roundabout"
-                            ? "🔄 Roundabout"
-                            : run.winner === "signal"
-                              ? "🚦 Signal"
-                              : "— Tie"}
-                        </span>
-                      </td>
-                      <td
-                        style={{
-                          fontWeight: 600,
-                          color:
-                            run.delayDeltaPercent > 0
-                              ? "#2ecc40"
-                              : run.delayDeltaPercent < 0
-                                ? "#ff6b6b"
-                                : "#888",
-                        }}
+              {/* Charts Grid */}
+              <div className={`charts-grid view-${metricView}`}>
+                {/* Delay Chart */}
+                {(metricView === "all" || metricView === "delay") && (
+                  <div className="chart-card">
+                    <div className="chart-card-header">
+                      <div>
+                        <h4>Average Delay vs. Traffic Volume</h4>
+                        <span className="chart-subtitle">Direct comparison of vehicular control delay</span>
+                      </div>
+                      <span className="chart-metric-unit">Seconds / Vehicle</span>
+                    </div>
+                    {chartData.length > 0 ? (
+                      <ResponsiveContainer
+                        width="100%"
+                        height={metricView === "all" ? 240 : 360}
                       >
-                        {run.delayDeltaPercent > 0 ? "+" : ""}
-                        {run.delayDeltaPercent.toFixed(1)}%
-                      </td>
+                        <LineChart
+                          data={chartData}
+                          margin={{ top: 12, right: 20, bottom: 8, left: 0 }}
+                        >
+                          <CartesianGrid
+                            strokeDasharray="3 3"
+                            stroke="rgba(255,255,255,0.06)"
+                          />
+                          <XAxis
+                            dataKey={xDataKey}
+                            tick={{ fontSize: 11, fill: "#94a3b8" }}
+                            tickFormatter={(v: number) => v.toString()}
+                            label={{
+                              value: xAxisMode === "volume" ? "veh/h" : "veh/s",
+                              position: "insideBottom",
+                              offset: -4,
+                              fill: "#94a3b8",
+                              fontSize: 11,
+                            }}
+                          />
+                          <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} />
+                          <Tooltip
+                            content={<CustomTooltip unit="s" xMode={xAxisMode} />}
+                          />
+                          <Legend wrapperStyle={{ fontSize: 12, paddingTop: 4 }} />
+                          {crossover && xAxisMode === "volume" && (
+                            <ReferenceLine
+                              x={crossover}
+                              stroke="#f59e0b"
+                              strokeDasharray="4 3"
+                              strokeWidth={2}
+                              label={{
+                                value: `Crossover (${crossover.toLocaleString()})`,
+                                position: "top",
+                                fill: "#f59e0b",
+                                fontSize: 11,
+                              }}
+                            />
+                          )}
+                          <Line
+                            type="monotone"
+                            dataKey="signalDelay"
+                            name="Fixed-Time Signal"
+                            stroke="#3b82f6"
+                            strokeWidth={2.8}
+                            dot={{ r: 4, fill: "#3b82f6" }}
+                            activeDot={{ r: 7, stroke: "#60a5fa", strokeWidth: 2 }}
+                          />
+                          <Line
+                            type="monotone"
+                            dataKey="roundaboutDelay"
+                            name="Modern Roundabout"
+                            stroke="#10b981"
+                            strokeWidth={2.8}
+                            dot={{ r: 4, fill: "#10b981" }}
+                            activeDot={{ r: 7, stroke: "#34d399", strokeWidth: 2 }}
+                          />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <div className="chart-empty">No telemetry data recorded</div>
+                    )}
+                  </div>
+                )}
+
+                {/* Throughput Chart */}
+                {(metricView === "all" || metricView === "throughput") && (
+                  <div className="chart-card">
+                    <div className="chart-card-header">
+                      <div>
+                        <h4>Throughput vs. Traffic Volume</h4>
+                        <span className="chart-subtitle">Vehicles successfully processed during simulation window</span>
+                      </div>
+                      <span className="chart-metric-unit">Completed Vehicles</span>
+                    </div>
+                    {chartData.length > 0 ? (
+                      <ResponsiveContainer
+                        width="100%"
+                        height={metricView === "all" ? 240 : 360}
+                      >
+                        <LineChart
+                          data={chartData}
+                          margin={{ top: 12, right: 20, bottom: 8, left: 0 }}
+                        >
+                          <CartesianGrid
+                            strokeDasharray="3 3"
+                            stroke="rgba(255,255,255,0.06)"
+                          />
+                          <XAxis
+                            dataKey={xDataKey}
+                            tick={{ fontSize: 11, fill: "#94a3b8" }}
+                            tickFormatter={(v: number) => v.toString()}
+                            label={{
+                              value: xAxisMode === "volume" ? "veh/h" : "veh/s",
+                              position: "insideBottom",
+                              offset: -4,
+                              fill: "#94a3b8",
+                              fontSize: 11,
+                            }}
+                          />
+                          <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} />
+                          <Tooltip
+                            content={
+                              <CustomTooltip unit=" veh" xMode={xAxisMode} />
+                            }
+                          />
+                          <Legend wrapperStyle={{ fontSize: 12, paddingTop: 4 }} />
+                          {crossover && xAxisMode === "volume" && (
+                            <ReferenceLine
+                              x={crossover}
+                              stroke="#f59e0b"
+                              strokeDasharray="4 3"
+                              strokeWidth={2}
+                            />
+                          )}
+                          <Line
+                            type="monotone"
+                            dataKey="signalThroughput"
+                            name="Fixed-Time Signal"
+                            stroke="#3b82f6"
+                            strokeWidth={2.8}
+                            dot={{ r: 4, fill: "#3b82f6" }}
+                            activeDot={{ r: 7, stroke: "#60a5fa", strokeWidth: 2 }}
+                          />
+                          <Line
+                            type="monotone"
+                            dataKey="roundaboutThroughput"
+                            name="Modern Roundabout"
+                            stroke="#10b981"
+                            strokeWidth={2.8}
+                            dot={{ r: 4, fill: "#10b981" }}
+                            activeDot={{ r: 7, stroke: "#34d399", strokeWidth: 2 }}
+                          />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <div className="chart-empty">No telemetry data recorded</div>
+                    )}
+                  </div>
+                )}
+
+                {/* Queue Chart */}
+                {(metricView === "all" || metricView === "queue") && (
+                  <div className="chart-card">
+                    <div className="chart-card-header">
+                      <div>
+                        <h4>Average Queue Length vs. Traffic Volume</h4>
+                        <span className="chart-subtitle">Mean standing queue per approach lane</span>
+                      </div>
+                      <span className="chart-metric-unit">Average Vehicles</span>
+                    </div>
+                    {chartData.length > 0 ? (
+                      <ResponsiveContainer
+                        width="100%"
+                        height={metricView === "all" ? 240 : 360}
+                      >
+                        <LineChart
+                          data={chartData}
+                          margin={{ top: 12, right: 20, bottom: 8, left: 0 }}
+                        >
+                          <CartesianGrid
+                            strokeDasharray="3 3"
+                            stroke="rgba(255,255,255,0.06)"
+                          />
+                          <XAxis
+                            dataKey={xDataKey}
+                            tick={{ fontSize: 11, fill: "#94a3b8" }}
+                            tickFormatter={(v: number) => v.toString()}
+                            label={{
+                              value: xAxisMode === "volume" ? "veh/h" : "veh/s",
+                              position: "insideBottom",
+                              offset: -4,
+                              fill: "#94a3b8",
+                              fontSize: 11,
+                            }}
+                          />
+                          <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} />
+                          <Tooltip
+                            content={
+                              <CustomTooltip unit=" veh" xMode={xAxisMode} />
+                            }
+                          />
+                          <Legend wrapperStyle={{ fontSize: 12, paddingTop: 4 }} />
+                          {crossover && xAxisMode === "volume" && (
+                            <ReferenceLine
+                              x={crossover}
+                              stroke="#f59e0b"
+                              strokeDasharray="4 3"
+                              strokeWidth={2}
+                            />
+                          )}
+                          <Line
+                            type="monotone"
+                            dataKey="signalQueue"
+                            name="Fixed-Time Signal"
+                            stroke="#3b82f6"
+                            strokeWidth={2.8}
+                            dot={{ r: 4, fill: "#3b82f6" }}
+                            activeDot={{ r: 7, stroke: "#60a5fa", strokeWidth: 2 }}
+                          />
+                          <Line
+                            type="monotone"
+                            dataKey="roundaboutQueue"
+                            name="Modern Roundabout"
+                            stroke="#10b981"
+                            strokeWidth={2.8}
+                            dot={{ r: 4, fill: "#10b981" }}
+                            activeDot={{ r: 7, stroke: "#34d399", strokeWidth: 2 }}
+                          />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <div className="chart-empty">No telemetry data recorded</div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+
+          {/* ── TAB 2: Head-to-Head Volume Matrix ──────── */}
+          {activeTab === "matrix" && (
+            <div className="sweep-summary-table-wrapper">
+              <div className="table-header-controls">
+                <div>
+                  <h4>Volume Sweep Results: {activeSession.name}</h4>
+                  <p className="table-subtitle">Detailed telemetry data with side-by-side comparative delay bars & HCM Level of Service</p>
+                </div>
+                <div className="table-filter-group">
+                  <span className="filter-label">Filter Winner:</span>
+                  <button
+                    type="button"
+                    className={`table-filter-btn ${filterWinner === "all" ? "active" : ""}`}
+                    onClick={() => {
+                      setFilterWinner("all");
+                    }}
+                  >
+                    All ({activeSession.runs.length.toString()})
+                  </button>
+                  <button
+                    type="button"
+                    className={`table-filter-btn ${filterWinner === "roundabout" ? "active" : ""}`}
+                    onClick={() => {
+                      setFilterWinner("roundabout");
+                    }}
+                  >
+                    🔄 Roundabout ({roundaboutWins.toString()})
+                  </button>
+                  <button
+                    type="button"
+                    className={`table-filter-btn ${filterWinner === "signal" ? "active" : ""}`}
+                    onClick={() => {
+                      setFilterWinner("signal");
+                    }}
+                  >
+                    🚦 Signal ({signalWins.toString()})
+                  </button>
+                </div>
+              </div>
+
+              <div className="table-scroll-container">
+                <table className="modern-telemetry-table">
+                  <thead>
+                    <tr>
+                      <th>Demand Tier</th>
+                      <th>Delay Comparison Bar</th>
+                      <th>Signal Delay & LOS</th>
+                      <th>Roundabout Delay & LOS</th>
+                      <th>Throughput</th>
+                      <th>Queues</th>
+                      <th>Winner</th>
+                      <th>Δ Delay</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {filteredRuns.map((run) => {
+                      const sigLOS = getHCMLevelOfService(run.signal.delay);
+                      const rndLOS = getHCMLevelOfService(run.roundabout.delay);
+                      const sigPct = Math.min(100, Math.round((run.signal.delay / maxDelayInRuns) * 100));
+                      const rndPct = Math.min(100, Math.round((run.roundabout.delay / maxDelayInRuns) * 100));
+
+                      return (
+                        <tr key={run.arrivalRate}>
+                          <td>
+                            <div className="table-tier-col">
+                              <strong>{run.hourlyVolumeVehPerHour.toLocaleString()} veh/h</strong>
+                              <span className="table-tier-rate">{run.arrivalRate.toFixed(2)} veh/s</span>
+                            </div>
+                          </td>
+
+                          {/* Visual Micro Delay Bar */}
+                          <td className="delay-bar-cell">
+                            <div className="dual-delay-bars">
+                              <div className="bar-row">
+                                <span className="bar-label">Sig</span>
+                                <div className="bar-track">
+                                  <div className="bar-fill sig-fill" style={{ width: `${sigPct.toString()}%` }} />
+                                </div>
+                              </div>
+                              <div className="bar-row">
+                                <span className="bar-label">Rnd</span>
+                                <div className="bar-track">
+                                  <div className="bar-fill rnd-fill" style={{ width: `${rndPct.toString()}%` }} />
+                                </div>
+                              </div>
+                            </div>
+                          </td>
+
+                          {/* Signal Delay */}
+                          <td>
+                            <div className="delay-los-cell">
+                              <span className="delay-val">{run.signal.delay.toFixed(2)}s</span>
+                              <span className="los-chip mini" style={{ color: sigLOS.color, background: sigLOS.bg }}>
+                                LOS {sigLOS.grade}
+                              </span>
+                            </div>
+                          </td>
+
+                          {/* Roundabout Delay */}
+                          <td>
+                            <div className="delay-los-cell">
+                              <span className="delay-val">{run.roundabout.delay.toFixed(2)}s</span>
+                              <span className="los-chip mini" style={{ color: rndLOS.color, background: rndLOS.bg }}>
+                                LOS {rndLOS.grade}
+                              </span>
+                            </div>
+                          </td>
+
+                          {/* Throughput */}
+                          <td>
+                            <div className="table-multi-col">
+                              <span>🚦 {run.signal.throughput}</span>
+                              <span>🔄 {run.roundabout.throughput}</span>
+                            </div>
+                          </td>
+
+                          {/* Queues */}
+                          <td>
+                            <div className="table-multi-col">
+                              <span>🚦 {run.signal.queue.toFixed(1)}</span>
+                              <span>🔄 {run.roundabout.queue.toFixed(1)}</span>
+                            </div>
+                          </td>
+
+                          {/* Winner Badge */}
+                          <td>
+                            <span
+                              className={
+                                run.winner === "roundabout"
+                                  ? "winner-roundabout"
+                                  : run.winner === "signal"
+                                    ? "winner-signal"
+                                    : "winner-tie"
+                              }
+                            >
+                              {run.winner === "roundabout"
+                                ? "🔄 Roundabout"
+                                : run.winner === "signal"
+                                  ? "🚦 Signal"
+                                  : "— Tie"}
+                            </span>
+                          </td>
+
+                          {/* Delta */}
+                          <td>
+                            <span
+                              className="delta-pill"
+                              style={{
+                                color:
+                                  run.delayDeltaPercent > 0
+                                    ? "#10b981"
+                                    : run.delayDeltaPercent < 0
+                                      ? "#f43f5e"
+                                      : "#94a3b8",
+                                background:
+                                  run.delayDeltaPercent > 0
+                                    ? "rgba(16, 185, 129, 0.1)"
+                                    : run.delayDeltaPercent < 0
+                                      ? "rgba(244, 63, 94, 0.1)"
+                                      : "rgba(148, 163, 184, 0.1)",
+                              }}
+                            >
+                              {run.delayDeltaPercent > 0 ? "+" : ""}
+                              {run.delayDeltaPercent.toFixed(1)}%
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
-          </div>
+          )}
+
+          {/* ── TAB 3: Traffic Engineering Insights & Capacity Guide ─ */}
+          {activeTab === "insights" && (
+            <div className="engineering-insights-container">
+              <div className="insights-header">
+                <div>
+                  <h4>🧠 Traffic Engineering Insights & Capacity Envelopes</h4>
+                  <p className="insights-subtitle">
+                    Theoretical principles explaining why roundabouts saturate and when traffic signals must be deployed according to Highway Capacity Manual (HCM) standards.
+                  </p>
+                </div>
+              </div>
+
+              <div className="insights-card-grid">
+                <div className="insight-card-modern">
+                  <div className="insight-card-top">
+                    <span className="insight-card-icon">⚡</span>
+                    <span className="insight-badge roundabout-badge">Low-Medium Volumes (&lt; Crossover)</span>
+                  </div>
+                  <h5>Continuous Gap-Acceptance Superiority</h5>
+                  <p>
+                    Modern Roundabouts completely eliminate lost time from yellow/all-red intervals. In low-to-moderate demand (below the critical crossover), circulating density is low, allowing drivers to execute yield and gap-acceptance without coming to a full halt. Vehicle throughput remains near capacity while queue buildup is negligible.
+                  </p>
+                  <div className="insight-stat-row">
+                    <span className="stat-highlight">Up to 50%</span>
+                    <span className="stat-desc">reduction in average vehicular delay vs. fixed signals</span>
+                  </div>
+                </div>
+
+                <div className="insight-card-modern">
+                  <div className="insight-card-top">
+                    <span className="insight-card-icon">🛑</span>
+                    <span className="insight-badge signal-badge">High Over-Capacity (&gt; Crossover)</span>
+                  </div>
+                  <h5>Circulating Ring Starvation & Lockup</h5>
+                  <p>
+                    When circulating demand exceeds critical density, entry vehicles encounter zero acceptable gaps. Queues spill backward along entrance approaches, leading to gridlock across adjacent legs. Fixed-Time Signals enforce deterministic cycle splits, forcefully rationing green time and guaranteeing clearance for cross-traffic.
+                  </p>
+                  <div className="insight-stat-row">
+                    <span className="stat-highlight">Deterministic</span>
+                    <span className="stat-desc">lane progression prevents circular cascade failure</span>
+                  </div>
+                </div>
+
+                <div className="insight-card-modern">
+                  <div className="insight-card-top">
+                    <span className="insight-card-icon">🏛️</span>
+                    <span className="insight-badge recommendation-badge">Civic Planning Takeaway</span>
+                  </div>
+                  <h5>Municipal Corridor Design Guidelines</h5>
+                  <p>
+                    {crossover
+                      ? `For corridors exceeding ${crossover.toLocaleString()} veh/h peak design hourly volume (DHV), a multi-phase adaptive traffic signal or turbo-roundabout with slip lanes is mathematically required.`
+                      : "For the evaluated volume ranges, modern roundabouts provide clear carbon emission reductions, lower fuel consumption, and higher safety margins over fixed-time signals."}
+                  </p>
+                  <div className="insight-stat-row">
+                    <span className="stat-highlight">{crossover ? `${crossover.toLocaleString()} veh/h` : "Full Range"}</span>
+                    <span className="stat-desc">planning design threshold for intersection selection</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* HCM Level of Service Reference Table */}
+              <div className="hcm-los-reference-box">
+                <h5>📖 Highway Capacity Manual (HCM 6th Edition) Level of Service (LOS) Benchmarks</h5>
+                <div className="los-grid-chips">
+                  <div className="los-card-chip">
+                    <span className="los-badge" style={{ color: "#10b981", background: "rgba(16, 185, 129, 0.15)" }}>LOS A</span>
+                    <span className="los-time">≤ 10s delay</span>
+                    <span className="los-condition">Free flow; progression is extremely high.</span>
+                  </div>
+                  <div className="los-card-chip">
+                    <span className="los-badge" style={{ color: "#34d399", background: "rgba(52, 211, 153, 0.15)" }}>LOS B</span>
+                    <span className="los-time">10 – 20s delay</span>
+                    <span className="los-condition">Good progression; short cycle queues.</span>
+                  </div>
+                  <div className="los-card-chip">
+                    <span className="los-badge" style={{ color: "#fbbf24", background: "rgba(251, 191, 36, 0.15)" }}>LOS C</span>
+                    <span className="los-time">20 – 35s delay</span>
+                    <span className="los-condition">Fair progression; noticeable vehicle queues.</span>
+                  </div>
+                  <div className="los-card-chip">
+                    <span className="los-badge" style={{ color: "#f97316", background: "rgba(249, 115, 22, 0.15)" }}>LOS D</span>
+                    <span className="los-time">35 – 55s delay</span>
+                    <span className="los-condition">Noticeable congestion; high delay margin.</span>
+                  </div>
+                  <div className="los-card-chip">
+                    <span className="los-badge" style={{ color: "#ef4444", background: "rgba(239, 68, 68, 0.15)" }}>LOS E</span>
+                    <span className="los-time">55 – 80s delay</span>
+                    <span className="los-condition">At or near physical capacity; long queues.</span>
+                  </div>
+                  <div className="los-card-chip">
+                    <span className="los-badge" style={{ color: "#f43f5e", background: "rgba(244, 63, 94, 0.2)" }}>LOS F</span>
+                    <span className="los-time">&gt; 80s delay</span>
+                    <span className="los-condition">Breakdown & oversaturation; excessive queuing.</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </>
       )}
     </div>
