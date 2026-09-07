@@ -108,12 +108,12 @@ class MetricCollector:
             v
             for v in exited_vehicles
             if (
-                getattr(v, "exit_time", None) is not None
+                v.exit_time is not None
                 and v.exit_time >= self.warmup_time
             )
             or (
-                getattr(v, "exit_time", None) is None
-                and getattr(v, "spawn_time", 0.0) >= self.warmup_time
+                v.exit_time is None
+                and v.spawn_time >= self.warmup_time
             )
         ]
 

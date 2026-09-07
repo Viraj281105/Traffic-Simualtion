@@ -157,7 +157,7 @@ function getHCMLevelOfService(delaySeconds: number): LOSInfo {
 // ── Chart data builder ──────────────────────────────────────────────────────
 
 function buildChartData(session: SweepSession) {
-  if (!session || !Array.isArray(session.runs)) return [];
+  if (!Array.isArray(session.runs)) return [];
   return session.runs.map((run) => {
     const sigDelay = Number(run.signal.delay.toFixed(2));
     const rndDelay = Number(run.roundabout.delay.toFixed(2));
@@ -258,9 +258,13 @@ const CustomTooltip = ({
         {payload.map((p) => {
           let extraInfo = "";
           if (p.name === "Fixed-Time Signal" && raw?.signalDelayStdDev !== undefined && unit === "s") {
-            extraInfo = ` (±${raw.signalDelayStdDev.toFixed(2)}s, [${raw.signalDelayMin?.toFixed(1)}–${raw.signalDelayMax?.toFixed(1)}s])`;
+            const minStr = raw.signalDelayMin !== undefined ? `${raw.signalDelayMin.toFixed(1)}–` : "";
+            const maxStr = raw.signalDelayMax !== undefined ? `${raw.signalDelayMax.toFixed(1)}s` : "";
+            extraInfo = ` (±${raw.signalDelayStdDev.toFixed(2)}s, [${minStr}${maxStr}])`;
           } else if (p.name === "Modern Roundabout" && raw?.roundaboutDelayStdDev !== undefined && unit === "s") {
-            extraInfo = ` (±${raw.roundaboutDelayStdDev.toFixed(2)}s, [${raw.roundaboutDelayMin?.toFixed(1)}–${raw.roundaboutDelayMax?.toFixed(1)}s])`;
+            const minStr = raw.roundaboutDelayMin !== undefined ? `${raw.roundaboutDelayMin.toFixed(1)}–` : "";
+            const maxStr = raw.roundaboutDelayMax !== undefined ? `${raw.roundaboutDelayMax.toFixed(1)}s` : "";
+            extraInfo = ` (±${raw.roundaboutDelayStdDev.toFixed(2)}s, [${minStr}${maxStr}])`;
           } else if (p.name === "Fixed-Time Signal" && raw?.signalQueueMax !== undefined && unit.includes("veh")) {
             extraInfo = ` (Peak: ${raw.signalQueueMax.toFixed(1)})`;
           } else if (p.name === "Modern Roundabout" && raw?.roundaboutQueueMax !== undefined && unit.includes("veh")) {
@@ -406,8 +410,9 @@ export const VolumeAnalysisDashboard: React.FC = () => {
           : Array.isArray(rawResults.runs)
             ? (rawResults.runs as SweepRun[])
             : [];
-        const curves: SweepCurves = (raw.curves as SweepCurves) ||
-          (rawResults.curves as SweepCurves) || {
+        const curves: SweepCurves =
+          (raw.curves as SweepCurves | undefined) ??
+          (rawResults.curves as SweepCurves | undefined) ?? {
             rates: [],
             volumesVehPerHour: [],
             signal: { delays: [], throughputs: [], queues: [] },
@@ -415,11 +420,23 @@ export const VolumeAnalysisDashboard: React.FC = () => {
             crossoverArrivalRate: null,
             crossoverHourlyVolume: null,
           };
+        const rawSessionId =
+          typeof raw.sessionId === "string"
+            ? raw.sessionId
+            : typeof raw.id === "string"
+              ? raw.id
+              : typeof rawResults.sessionId === "string"
+                ? rawResults.sessionId
+                : id;
+        const rawName =
+          typeof raw.name === "string"
+            ? raw.name
+            : typeof rawResults.name === "string"
+              ? rawResults.name
+              : "Saved Sweep";
         const session: SweepSession = {
-          sessionId: String(
-            raw.sessionId || raw.id || rawResults.sessionId || id,
-          ),
-          name: String(raw.name || rawResults.name || "Saved Sweep"),
+          sessionId: rawSessionId,
+          name: rawName,
           duration: Number(raw.duration ?? rawResults.duration ?? 60),
           randomSeed: Number(raw.randomSeed ?? rawResults.randomSeed ?? 42),
           curves,
@@ -516,8 +533,9 @@ export const VolumeAnalysisDashboard: React.FC = () => {
           : Array.isArray(rawResults.runs)
             ? (rawResults.runs as SweepRun[])
             : [];
-        const curves: SweepCurves = (raw.curves as SweepCurves) ||
-          (rawResults.curves as SweepCurves) || {
+        const curves: SweepCurves =
+          (raw.curves as SweepCurves | undefined) ??
+          (rawResults.curves as SweepCurves | undefined) ?? {
             rates: [],
             volumesVehPerHour: [],
             signal: { delays: [], throughputs: [], queues: [] },
@@ -525,11 +543,23 @@ export const VolumeAnalysisDashboard: React.FC = () => {
             crossoverArrivalRate: null,
             crossoverHourlyVolume: null,
           };
+        const rawSessionId =
+          typeof raw.sessionId === "string"
+            ? raw.sessionId
+            : typeof raw.id === "string"
+              ? raw.id
+              : typeof rawResults.sessionId === "string"
+                ? rawResults.sessionId
+                : "session";
+        const rawName =
+          typeof raw.name === "string"
+            ? raw.name
+            : typeof rawResults.name === "string"
+              ? rawResults.name
+              : "Completed Sweep";
         const session: SweepSession = {
-          sessionId: String(
-            raw.sessionId || raw.id || rawResults.sessionId || "session",
-          ),
-          name: String(raw.name || rawResults.name || "Completed Sweep"),
+          sessionId: rawSessionId,
+          name: rawName,
           duration: Number(raw.duration ?? rawResults.duration ?? sweepDuration),
           randomSeed: Number(raw.randomSeed ?? rawResults.randomSeed ?? randomSeed),
           curves,
@@ -592,7 +622,7 @@ export const VolumeAnalysisDashboard: React.FC = () => {
   };
 
   const chartData = activeSession ? buildChartData(activeSession) : [];
-  const crossover = activeSession?.curves?.crossoverHourlyVolume ?? null;
+  const crossover = activeSession?.curves.crossoverHourlyVolume ?? null;
   const xDataKey = xAxisMode === "volume" ? "volume" : "rate";
 
   const runsList = useMemo(() => {
@@ -622,7 +652,7 @@ export const VolumeAnalysisDashboard: React.FC = () => {
 
   const currentScrubberVolume = useMemo(() => {
     if (scrubberVolumeOverride !== null) return scrubberVolumeOverride;
-    if (activeSession?.curves?.crossoverHourlyVolume) {
+    if (activeSession?.curves.crossoverHourlyVolume) {
       return activeSession.curves.crossoverHourlyVolume;
     }
     if (runsList.length > 0) {
