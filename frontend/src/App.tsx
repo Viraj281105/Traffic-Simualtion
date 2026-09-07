@@ -35,6 +35,7 @@ export function App() {
     | "validation"
   >("comparative");
   const [activeReplay, setActiveReplay] = useState<SavedReplay | null>(null);
+  const [showAnalyticsModal, setShowAnalyticsModal] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isLight, setIsLight] = useState(
     () => sessionStorage.getItem("signals-theme") === "light",
@@ -524,7 +525,7 @@ export function App() {
         >
           <div
             className="comparison-maps-row"
-            style={{ display: "flex", flex: 1.2, minHeight: 0 }}
+            style={{ display: "flex", flex: 1, minHeight: 0 }}
           >
             {/* Left Column: Fixed-Time Signal */}
             <div className="comparison-column" style={{ flex: 1 }}>
@@ -603,36 +604,27 @@ export function App() {
             </div>
           </div>
 
-          <div
-            className="comparison-metrics-row"
-            style={{
-              flex: 1,
-              minHeight: 0,
-              borderTop: "1px solid var(--border)",
-              display: "flex",
-              flexDirection: "column",
-            }}
-          >
-            <div
-              style={{
-                padding: "8px 16px",
-                display: "flex",
-                justifyContent: "flex-end",
-              }}
+          <div className="comparative-actions-bar">
+            <button
+              className="pb-btn pb-primary"
+              onClick={handleSaveHistory}
+              disabled={activeIsPlaying || activeReplay !== null}
+              title={
+                activeReplay
+                  ? "Cannot save a replay"
+                  : "Save this simulation to history"
+              }
             >
-              <button
-                className="pb-btn pb-primary"
-                onClick={handleSaveHistory}
-                disabled={activeIsPlaying || activeReplay !== null}
-                title={
-                  activeReplay
-                    ? "Cannot save a replay"
-                    : "Save this simulation to history"
-                }
-              >
-                💾 Save to History
-              </button>
-            </div>
+              💾 Save to History
+            </button>
+            <button
+              className="pb-btn pb-secondary"
+              onClick={() => { setShowAnalyticsModal(true); }}
+            >
+              📊 Comparison Analytics
+            </button>
+          </div>
+          {showAnalyticsModal && (
             <ComparativeDashboard
               snapshot={
                 activeReplay &&
@@ -645,8 +637,9 @@ export function App() {
                   : metricsSnapshotDual
               }
               connectionStatus={activeConnectionStatus}
+              onClose={() => { setShowAnalyticsModal(false); }}
             />
-          </div>
+          )}
         </main>
       ) : viewMode === "history" ? (
         <main className="app-main full-screen" style={{ overflow: "hidden" }}>
