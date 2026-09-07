@@ -1,3 +1,4 @@
+import math
 from typing import Any, Dict, List
 
 from src.core.enums import Direction
@@ -30,7 +31,7 @@ class MetricCollector:
     def __init__(self, config: Dict[str, Any]) -> None:
         self.config: Dict[str, Any] = config
         sim_cfg = config.get("simulation", {})
-        self.warmup_time: float = sim_cfg.get("warmupTime", 30.0)
+        self.warmup_time: float = sim_cfg.get("warmupTime", 15.0)
         self.time_step: float = sim_cfg.get("timeStep", 0.1)
 
         # Hysteresis configuration
@@ -102,11 +103,18 @@ class MetricCollector:
         total_spawned: int,
     ) -> Dict[str, Any]:
         """Calculates and aggregates the complete metrics snapshot."""
-        # Filter exited vehicles that were spawned AFTER the warmup period
+        # Filter exited vehicles that completed their journey post-warmup
         post_warmup_exited = [
             v
             for v in exited_vehicles
-            if getattr(v, "spawn_time", 0.0) >= self.warmup_time
+            if (
+                getattr(v, "exit_time", None) is not None
+                and v.exit_time >= self.warmup_time
+            )
+            or (
+                getattr(v, "exit_time", None) is None
+                and getattr(v, "spawn_time", 0.0) >= self.warmup_time
+            )
         ]
 
         # Calculate current queue lengths
@@ -114,14 +122,82 @@ class MetricCollector:
             active_vehicles, self.wait_speed_threshold
         )
 
-        # Compute max and average queue length (time-averaged)
+        # Compute max, time-averaged, active average queue length, and queue std dev
         if self.queue_history:
             all_queues_sums = [sum(q.values()) for q in self.queue_history]
             max_q = max(all_queues_sums)
-            avg_q = sum(all_queues_sums) / len(self.queue_history)
+            avg_q = round(sum(all_queues_sums) / len(self.queue_history), 2)
+            non_zero_queues = [q for q in all_queues_sums if q > 0]
+            active_avg_q = (
+                round(sum(non_zero_queues) / len(non_zero_queues), 2)
+                if non_zero_queues
+                else 0.0
+            )
+            if len(all_queues_sums) > 1:
+                var_q = sum((x - avg_q) ** 2 for x in all_queues_sums) / (
+                    len(all_queues_sums) - 1
+                )
+                sd_q = round(math.sqrt(var_q), 2)
+            else:
+                sd_q = 0.0
         else:
             max_q = 0
             avg_q = 0.0
+            active_avg_q = 0.0
+            sd_q = 0.0
+
+        # Compute control delay distribution (actual travel time minus free-flow time)
+        delays: List[float] = []
+        for v in post_warmup_exited:
+            spawn_t = getattr(v, "spawn_time", 0.0)
+            exit_t = getattr(v, "exit_time", None)
+            if exit_t is not None and exit_t > spawn_t:
+                actual_travel_time = exit_t - spawn_t
+                if getattr(v, "route", None):
+                    route_len = sum(
+                        lane.length for lane in v.route if hasattr(lane, "length")
+                    )
+                    free_flow_time = route_len / max(
+                        getattr(v, "desired_speed", 15.0), 1.0
+                    )
+                else:
+                    free_flow_time = 0.0
+                delays.append(max(0.0, actual_travel_time - free_flow_time))
+            else:
+                delays.append(getattr(v, "wait_time", 0.0))
+
+        if delays:
+            avg_delay = round(sum(delays) / len(delays), 2)
+            sorted_d = sorted(delays)
+            n_d = len(sorted_d)
+            med_delay = round(
+                sorted_d[n_d // 2]
+                if n_d % 2 == 1
+                else (sorted_d[n_d // 2 - 1] + sorted_d[n_d // 2]) / 2.0,
+                2,
+            )
+            min_delay = round(sorted_d[0], 2)
+            max_delay = round(sorted_d[-1], 2)
+            k_d = (n_d - 1) * 0.95
+            f_d = math.floor(k_d)
+            c_d = math.ceil(k_d)
+            p95_delay = round(
+                sorted_d[int(f_d)]
+                + (sorted_d[int(c_d)] - sorted_d[int(f_d)]) * (k_d - f_d),
+                2,
+            )
+            if n_d > 1:
+                var_d = sum((x - avg_delay) ** 2 for x in delays) / (n_d - 1)
+                sd_delay = round(math.sqrt(var_d), 2)
+            else:
+                sd_delay = 0.0
+        else:
+            avg_delay = round(calculate_average_wait_time(post_warmup_exited), 2)
+            med_delay = 0.0
+            min_delay = 0.0
+            max_delay = 0.0
+            p95_delay = 0.0
+            sd_delay = 0.0
 
         # Compute total stops post-warmup
         total_stops_exited = sum(v.stop_count for v in post_warmup_exited)
@@ -139,13 +215,21 @@ class MetricCollector:
 
         base_metrics = {
             "averageWaitTime": calculate_average_wait_time(post_warmup_exited),
+            "averageDelay": avg_delay,
+            "medianDelay": med_delay,
+            "minDelay": min_delay,
+            "maxDelay": max_delay,
+            "p95Delay": p95_delay,
+            "delayStdDev": sd_delay,
             "throughput": calculate_throughput(post_warmup_exited),
             "throughputRate": calculate_throughput_rate(
-                post_warmup_exited, current_time
+                post_warmup_exited, current_time, warmup_time=self.warmup_time
             ),
             "currentQueueLengths": curr_queues,
             "maxQueueLength": max_q,
             "averageQueueLength": avg_q,
+            "activeAverageQueueLength": active_avg_q,
+            "queueStdDev": sd_q,
             "totalStops": total_stops_exited,
             "averageStopsPerVehicle": calculate_average_stops(post_warmup_exited),
             "speedVarianceIndex": calculate_speed_variance_index(active_vehicles),

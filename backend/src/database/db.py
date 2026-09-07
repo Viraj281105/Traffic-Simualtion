@@ -2,7 +2,10 @@ import os
 import sqlite3
 from typing import Generator
 
-DB_PATH = os.environ.get("DB_PATH", "simulation.db")
+DEFAULT_DB_PATH = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "..", "simulation.db")
+)
+DB_PATH = os.environ.get("DB_PATH", DEFAULT_DB_PATH)
 
 
 def init_db() -> None:
