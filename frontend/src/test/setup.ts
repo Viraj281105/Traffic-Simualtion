@@ -23,6 +23,9 @@ vi.mock("recharts", () => {
       React.createElement("div", { className: "recharts-grid" }),
     Tooltip: () =>
       React.createElement("div", { className: "recharts-tooltip" }),
+    BarChart: ({ children }: { children: React.ReactNode }) =>
+      React.createElement("div", { className: "recharts-bar-chart" }, children),
+    Bar: () => React.createElement("div", { className: "recharts-bar" }),
     Legend: () => React.createElement("div", { className: "recharts-legend" }),
     ReferenceLine: () =>
       React.createElement("div", { className: "recharts-reference-line" }),
