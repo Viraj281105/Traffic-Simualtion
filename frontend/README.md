@@ -111,7 +111,8 @@ The React application interfaces with the Python backend via the `useSimulationP
    ```bash
    npm run dev
    ```
-  By default, the Vite dev server runs at `http://localhost:5173`; use `/` for the landing page and `/app.html` for the dashboard.
+
+By default, the Vite dev server runs at `http://localhost:5173`; use `/` for the landing page and `/app.html` for the dashboard.
 
 ### Production Build
 

@@ -163,14 +163,26 @@ function buildChartData(session: SweepSession) {
     const rndDelay = Number(run.roundabout.delay.toFixed(2));
     const sigDelayStd = Number((run.signal.delayStdDev ?? 0).toFixed(2));
     const rndDelayStd = Number((run.roundabout.delayStdDev ?? 0).toFixed(2));
-    const sigDelayMin = Number((run.signal.delayMin ?? Math.max(0, sigDelay - sigDelayStd)).toFixed(2));
-    const sigDelayMax = Number((run.signal.delayMax ?? (sigDelay + sigDelayStd)).toFixed(2));
-    const rndDelayMin = Number((run.roundabout.delayMin ?? Math.max(0, rndDelay - rndDelayStd)).toFixed(2));
-    const rndDelayMax = Number((run.roundabout.delayMax ?? (rndDelay + rndDelayStd)).toFixed(2));
+    const sigDelayMin = Number(
+      (run.signal.delayMin ?? Math.max(0, sigDelay - sigDelayStd)).toFixed(2),
+    );
+    const sigDelayMax = Number(
+      (run.signal.delayMax ?? sigDelay + sigDelayStd).toFixed(2),
+    );
+    const rndDelayMin = Number(
+      (run.roundabout.delayMin ?? Math.max(0, rndDelay - rndDelayStd)).toFixed(
+        2,
+      ),
+    );
+    const rndDelayMax = Number(
+      (run.roundabout.delayMax ?? rndDelay + rndDelayStd).toFixed(2),
+    );
     const sigQueue = Number(run.signal.queue.toFixed(2));
     const rndQueue = Number(run.roundabout.queue.toFixed(2));
     const sigQueueMax = Number((run.signal.queueMax ?? sigQueue).toFixed(2));
-    const rndQueueMax = Number((run.roundabout.queueMax ?? rndQueue).toFixed(2));
+    const rndQueueMax = Number(
+      (run.roundabout.queueMax ?? rndQueue).toFixed(2),
+    );
 
     return {
       volume: run.hourlyVolumeVehPerHour,
@@ -191,7 +203,9 @@ function buildChartData(session: SweepSession) {
       roundaboutQueueMax: rndQueueMax,
       winner: run.winner,
       delayDeltaPercent: Number(run.delayDeltaPercent.toFixed(1)),
-      throughputDeltaPercent: Number((run.throughputDeltaPercent ?? 0).toFixed(1)),
+      throughputDeltaPercent: Number(
+        (run.throughputDeltaPercent ?? 0).toFixed(1),
+      ),
       queueDeltaPercent: Number((run.queueDeltaPercent ?? 0).toFixed(1)),
     };
   });
@@ -257,17 +271,45 @@ const CustomTooltip = ({
       <div className="tooltip-metrics">
         {payload.map((p) => {
           let extraInfo = "";
-          if (p.name === "Fixed-Time Signal" && raw?.signalDelayStdDev !== undefined && unit === "s") {
-            const minStr = raw.signalDelayMin !== undefined ? `${raw.signalDelayMin.toFixed(1)}–` : "";
-            const maxStr = raw.signalDelayMax !== undefined ? `${raw.signalDelayMax.toFixed(1)}s` : "";
+          if (
+            p.name === "Fixed-Time Signal" &&
+            raw?.signalDelayStdDev !== undefined &&
+            unit === "s"
+          ) {
+            const minStr =
+              raw.signalDelayMin !== undefined
+                ? `${raw.signalDelayMin.toFixed(1)}–`
+                : "";
+            const maxStr =
+              raw.signalDelayMax !== undefined
+                ? `${raw.signalDelayMax.toFixed(1)}s`
+                : "";
             extraInfo = ` (±${raw.signalDelayStdDev.toFixed(2)}s, [${minStr}${maxStr}])`;
-          } else if (p.name === "Modern Roundabout" && raw?.roundaboutDelayStdDev !== undefined && unit === "s") {
-            const minStr = raw.roundaboutDelayMin !== undefined ? `${raw.roundaboutDelayMin.toFixed(1)}–` : "";
-            const maxStr = raw.roundaboutDelayMax !== undefined ? `${raw.roundaboutDelayMax.toFixed(1)}s` : "";
+          } else if (
+            p.name === "Modern Roundabout" &&
+            raw?.roundaboutDelayStdDev !== undefined &&
+            unit === "s"
+          ) {
+            const minStr =
+              raw.roundaboutDelayMin !== undefined
+                ? `${raw.roundaboutDelayMin.toFixed(1)}–`
+                : "";
+            const maxStr =
+              raw.roundaboutDelayMax !== undefined
+                ? `${raw.roundaboutDelayMax.toFixed(1)}s`
+                : "";
             extraInfo = ` (±${raw.roundaboutDelayStdDev.toFixed(2)}s, [${minStr}${maxStr}])`;
-          } else if (p.name === "Fixed-Time Signal" && raw?.signalQueueMax !== undefined && unit.includes("veh")) {
+          } else if (
+            p.name === "Fixed-Time Signal" &&
+            raw?.signalQueueMax !== undefined &&
+            unit.includes("veh")
+          ) {
             extraInfo = ` (Peak: ${raw.signalQueueMax.toFixed(1)})`;
-          } else if (p.name === "Modern Roundabout" && raw?.roundaboutQueueMax !== undefined && unit.includes("veh")) {
+          } else if (
+            p.name === "Modern Roundabout" &&
+            raw?.roundaboutQueueMax !== undefined &&
+            unit.includes("veh")
+          ) {
             extraInfo = ` (Peak: ${raw.roundaboutQueueMax.toFixed(1)})`;
           }
 
@@ -278,16 +320,53 @@ const CustomTooltip = ({
               <span className="tooltip-val" style={{ color: p.color }}>
                 {p.value.toFixed(2)}
                 {unit}
-                {extraInfo && <span className="tooltip-extra" style={{ fontSize: "11px", opacity: 0.85, marginLeft: "4px" }}>{extraInfo}</span>}
+                {extraInfo && (
+                  <span
+                    className="tooltip-extra"
+                    style={{
+                      fontSize: "11px",
+                      opacity: 0.85,
+                      marginLeft: "4px",
+                    }}
+                  >
+                    {extraInfo}
+                  </span>
+                )}
               </span>
             </div>
           );
         })}
         {raw?.delayDeltaPercent !== undefined && unit === "s" && (
-          <div className="tooltip-delta-row" style={{ marginTop: "6px", paddingTop: "6px", borderTop: "1px solid rgba(255,255,255,0.1)", fontSize: "11px", display: "flex", justifyContent: "space-between" }}>
-            <span style={{ color: "hsl(var(--muted-foreground))" }}>Δ Relative Difference:</span>
-            <span style={{ fontWeight: 700, color: raw.delayDeltaPercent > 0 ? "#38bdf8" : raw.delayDeltaPercent < 0 ? "#10b981" : "#f59e0b" }}>
-              {raw.delayDeltaPercent > 0 ? `+${raw.delayDeltaPercent.toFixed(1)}% (Signal Advantage)` : raw.delayDeltaPercent < 0 ? `${raw.delayDeltaPercent.toFixed(1)}% (Roundabout Advantage)` : "0.0% (Parity)"}
+          <div
+            className="tooltip-delta-row"
+            style={{
+              marginTop: "6px",
+              paddingTop: "6px",
+              borderTop: "1px solid rgba(255,255,255,0.1)",
+              fontSize: "11px",
+              display: "flex",
+              justifyContent: "space-between",
+            }}
+          >
+            <span style={{ color: "hsl(var(--muted-foreground))" }}>
+              Δ Relative Difference:
+            </span>
+            <span
+              style={{
+                fontWeight: 700,
+                color:
+                  raw.delayDeltaPercent > 0
+                    ? "#38bdf8"
+                    : raw.delayDeltaPercent < 0
+                      ? "#10b981"
+                      : "#f59e0b",
+              }}
+            >
+              {raw.delayDeltaPercent > 0
+                ? `+${raw.delayDeltaPercent.toFixed(1)}% (Signal Advantage)`
+                : raw.delayDeltaPercent < 0
+                  ? `${raw.delayDeltaPercent.toFixed(1)}% (Roundabout Advantage)`
+                  : "0.0% (Parity)"}
             </span>
           </div>
         )}
@@ -410,8 +489,7 @@ export const VolumeAnalysisDashboard: React.FC = () => {
           : Array.isArray(rawResults.runs)
             ? (rawResults.runs as SweepRun[])
             : [];
-        const curves: SweepCurves =
-          (raw.curves as SweepCurves | undefined) ??
+        const curves: SweepCurves = (raw.curves as SweepCurves | undefined) ??
           (rawResults.curves as SweepCurves | undefined) ?? {
             rates: [],
             volumesVehPerHour: [],
@@ -533,8 +611,7 @@ export const VolumeAnalysisDashboard: React.FC = () => {
           : Array.isArray(rawResults.runs)
             ? (rawResults.runs as SweepRun[])
             : [];
-        const curves: SweepCurves =
-          (raw.curves as SweepCurves | undefined) ??
+        const curves: SweepCurves = (raw.curves as SweepCurves | undefined) ??
           (rawResults.curves as SweepCurves | undefined) ?? {
             rates: [],
             volumesVehPerHour: [],
@@ -560,8 +637,12 @@ export const VolumeAnalysisDashboard: React.FC = () => {
         const session: SweepSession = {
           sessionId: rawSessionId,
           name: rawName,
-          duration: Number(raw.duration ?? rawResults.duration ?? sweepDuration),
-          randomSeed: Number(raw.randomSeed ?? rawResults.randomSeed ?? randomSeed),
+          duration: Number(
+            raw.duration ?? rawResults.duration ?? sweepDuration,
+          ),
+          randomSeed: Number(
+            raw.randomSeed ?? rawResults.randomSeed ?? randomSeed,
+          ),
           curves,
           runs,
         };
@@ -633,7 +714,9 @@ export const VolumeAnalysisDashboard: React.FC = () => {
   }, [activeSession]);
 
   // Compute quick KPI metrics
-  const roundaboutWins = runsList.filter((r) => r.winner === "roundabout").length;
+  const roundaboutWins = runsList.filter(
+    (r) => r.winner === "roundabout",
+  ).length;
   const signalWins = runsList.filter((r) => r.winner === "signal").length;
   const tieWins = runsList.filter((r) => r.winner === "tie").length;
   const totalRuns = runsList.length;
@@ -681,9 +764,7 @@ export const VolumeAnalysisDashboard: React.FC = () => {
   const maxDelayInRuns = useMemo(() => {
     if (runsList.length === 0) return 60;
     return Math.max(
-      ...runsList.map((r) =>
-        Math.max(r.signal.delay, r.roundabout.delay),
-      ),
+      ...runsList.map((r) => Math.max(r.signal.delay, r.roundabout.delay)),
       10,
     );
   }, [runsList]);
@@ -2041,10 +2122,17 @@ export const VolumeAnalysisDashboard: React.FC = () => {
 
                 {/* Optional Delta Trend Chart */}
                 {showDeltaTrend && (
-                  <div className="chart-card chart-card-delta-trend" style={{ gridColumn: "1 / -1" }}>
+                  <div
+                    className="chart-card chart-card-delta-trend"
+                    style={{ gridColumn: "1 / -1" }}
+                  >
                     <div className="chart-card-mini-header">
-                      <span className="mini-title">📈 Relative Performance Delta (% Difference)</span>
-                      <span className="mini-unit">Δ % (Objective Baseline: 0% Parity)</span>
+                      <span className="mini-title">
+                        📈 Relative Performance Delta (% Difference)
+                      </span>
+                      <span className="mini-unit">
+                        Δ % (Objective Baseline: 0% Parity)
+                      </span>
                     </div>
                     {chartData.length > 0 ? (
                       <ResponsiveContainer width="100%" height={300}>
@@ -2347,7 +2435,13 @@ export const VolumeAnalysisDashboard: React.FC = () => {
                               <span>
                                 🚦 {run.signal.queue.toFixed(1)}
                                 {run.signal.queueMax !== undefined && (
-                                  <span style={{ fontSize: "10.5px", opacity: 0.8, marginLeft: "3px" }}>
+                                  <span
+                                    style={{
+                                      fontSize: "10.5px",
+                                      opacity: 0.8,
+                                      marginLeft: "3px",
+                                    }}
+                                  >
                                     (pk {run.signal.queueMax.toFixed(0)})
                                   </span>
                                 )}
@@ -2355,7 +2449,13 @@ export const VolumeAnalysisDashboard: React.FC = () => {
                               <span>
                                 🔄 {run.roundabout.queue.toFixed(1)}
                                 {run.roundabout.queueMax !== undefined && (
-                                  <span style={{ fontSize: "10.5px", opacity: 0.8, marginLeft: "3px" }}>
+                                  <span
+                                    style={{
+                                      fontSize: "10.5px",
+                                      opacity: 0.8,
+                                      marginLeft: "3px",
+                                    }}
+                                  >
                                     (pk {run.roundabout.queueMax.toFixed(0)})
                                   </span>
                                 )}
