@@ -209,7 +209,7 @@ export const RoundaboutMap: React.FC<RoundaboutMapProps> = ({
         cancelAnimationFrame(animFrameIdRef.current);
       }
     };
-  }, [width, height, laneWidth, showCrosswalks, debug]);
+  }, [width, height, laneWidth, lanes, showCrosswalks, debug]);
 
   return (
     <canvas

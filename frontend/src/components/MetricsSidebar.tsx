@@ -21,7 +21,12 @@ const DIR_LABEL: Record<SignalDirection, string> = {
 };
 
 function fmt(val: number | null | undefined, decimals = 1): string {
-  if (val === undefined || val === null || Number.isNaN(val) || !Number.isFinite(val)) {
+  if (
+    val === undefined ||
+    val === null ||
+    Number.isNaN(val) ||
+    !Number.isFinite(val)
+  ) {
     return "—";
   }
   return val.toFixed(decimals);
