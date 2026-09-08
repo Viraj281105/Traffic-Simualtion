@@ -73,7 +73,9 @@ export function useSimulationPolling(): PollingState & {
         clearInterval(pollIntervalRef.current);
       }
       await pollVehicleState();
-      pollIntervalRef.current = setInterval(pollVehicleState, POLL_INTERVAL_MS);
+      pollIntervalRef.current = setInterval(() => {
+        void pollVehicleState();
+      }, POLL_INTERVAL_MS);
       setIsLoading(false);
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
@@ -149,10 +151,9 @@ export function useSimulationPolling(): PollingState & {
           if (data.status === "running") {
             isPollingRef.current = true;
             await pollVehicleState();
-            pollIntervalRef.current = setInterval(
-              pollVehicleState,
-              POLL_INTERVAL_MS,
-            );
+            pollIntervalRef.current = setInterval(() => {
+              void pollVehicleState();
+            }, POLL_INTERVAL_MS);
           }
         }
       } catch (err) {

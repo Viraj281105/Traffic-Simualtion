@@ -15,8 +15,7 @@ import { ValidationDashboard } from "./components/ValidationDashboard";
 import { ConfigurationSidebar } from "./components/ConfigurationSidebar";
 import { Sun, Moon } from "lucide-react";
 import type { SimulationConfigValues } from "./types/config";
-import { updateSimulationConfig } from "./services/api";
-import { API_BASE_URL } from "./config";
+import { saveReplay, updateSimulationConfig } from "./services/api";
 import type {
   LiveSnapshot,
   DualSnapshot,
@@ -257,6 +256,7 @@ export function App() {
       : connectionStatus;
 
   const handlePlay = () => {
+    setActiveReplay(null);
     if (viewMode === "single") {
       singleStart().catch(() => {});
     } else {
@@ -354,12 +354,7 @@ export function App() {
       metrics: metricsToSave,
     };
 
-    fetch(`${API_BASE_URL}/api/v1/replays`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    })
-      .then((r) => r.json())
+    saveReplay(payload)
       .then(() => {
         showToast("✅ Simulation saved to history!");
       })
@@ -484,27 +479,29 @@ export function App() {
       </header>
 
       {/* ── Quick Display Toggles & Status Bar ────────────────────────── */}
-      <div className="quick-toggles-bar">
-        <ConfigToggle
-          label="Stop Lines"
-          value={showStopLines}
-          onChange={setShowStopLines}
-        />
-        <ConfigToggle label="Debug Queues" value={debug} onChange={setDebug} />
-        <div className="quick-seed-group">
-          <span className="seed-badge" title="Active Random Seed">
-            🎲 Seed: <strong>{randomSeed}</strong>
-          </span>
-          <button
-            type="button"
-            className="pb-btn pb-secondary re-roll-btn"
-            onClick={randomizeSeed}
-            title="Roll new random seed"
-          >
-            Re-roll
-          </button>
+      {viewMode !== "volume" && viewMode !== "validation" && viewMode !== "history" && (
+        <div className="quick-toggles-bar">
+          <ConfigToggle
+            label="Stop Lines"
+            value={showStopLines}
+            onChange={setShowStopLines}
+          />
+          <ConfigToggle label="Debug Queues" value={debug} onChange={setDebug} />
+          <div className="quick-seed-group">
+            <span className="seed-badge" title="Active Random Seed">
+              🎲 Seed: <strong>{randomSeed}</strong>
+            </span>
+            <button
+              type="button"
+              className="pb-btn pb-secondary re-roll-btn"
+              onClick={randomizeSeed}
+              title="Roll new random seed"
+            >
+              Re-roll
+            </button>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* ── Interactive Configuration Sidebar ────────────────────────── */}
       <ConfigurationSidebar
@@ -584,6 +581,7 @@ export function App() {
                 <RoundaboutMap
                   snapshot={dualSnapshot?.roundabout ?? null}
                   laneWidth={laneWidth}
+                  lanes={lanesNorth}
                   showCrosswalks={false}
                   debug={debug}
                   width={600}
@@ -660,6 +658,7 @@ export function App() {
               <RoundaboutMap
                 snapshot={singleSnapshot}
                 laneWidth={laneWidth}
+                lanes={lanesNorth}
                 showCrosswalks={false}
                 debug={debug}
               />

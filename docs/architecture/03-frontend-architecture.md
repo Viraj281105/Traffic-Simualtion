@@ -2,14 +2,16 @@
 
 > **Document Version:** 0.1.0
 > **Last Updated:** 2026-07-23
-> **Status:** Phase 0 — Architecture Specification
+> **Status:** Current implementation reference (audited 2026-09-07)
 > **Owner:** Developer B
 
 ---
 
 ## 1. Overview
 
-The frontend is a **React + TypeScript** single-page application that provides:
+The frontend is a **React 19 + TypeScript** application with a landing-page entry (`index.html`) and a dashboard entry (`app.html`). Current API routes and setup are documented in [../operations.md](../operations.md).
+
+It provides:
 
 1. A real-time **simulation visualization** using HTML5 Canvas
 2. Interactive **metric dashboards** with comparative charts

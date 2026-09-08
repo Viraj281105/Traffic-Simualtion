@@ -65,22 +65,24 @@ export const ComparativeDashboard: React.FC<ComparativeDashboardProps> = ({
     csv += "Metric Name,Fixed-Time Signal,Roundabout,Winner,Delta (%)\n";
     const addRow = (
       label: string,
-      valA: number,
-      valB: number,
+      valA: number | undefined | null,
+      valB: number | undefined | null,
       lowerIsBetter = true,
     ) => {
+      const a = typeof valA === "number" && Number.isFinite(valA) ? valA : 0;
+      const b = typeof valB === "number" && Number.isFinite(valB) ? valB : 0;
       const winner =
-        valA === valB
+        a === b
           ? "Tie"
           : lowerIsBetter
-            ? valA < valB
+            ? a < b
               ? "Signal"
               : "Roundabout"
-            : valA > valB
+            : a > b
               ? "Signal"
               : "Roundabout";
-      const delta = valA === 0 ? 0 : ((valB - valA) / valA) * 100;
-      csv += `"${label}",${valA.toFixed(2)},${valB.toFixed(2)},${winner},${delta.toFixed(1)}%\n`;
+      const delta = a === 0 ? 0 : ((b - a) / a) * 100;
+      csv += `"${label}",${a.toFixed(2)},${b.toFixed(2)},${winner},${delta.toFixed(1)}%\n`;
     };
     addRow(
       "Average Wait Time",

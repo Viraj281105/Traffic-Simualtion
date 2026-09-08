@@ -1,9 +1,9 @@
 # Traffic Simulation Frontend
 
-The visualization frontend is a TypeScript, React 18, and Vite-based dashboard. It provides a real-time, interactive HTML5 Canvas visualization of traffic intersections, letting users monitor vehicle physics, toggle road rendering elements, adjust layout parameters, and track simulation metrics in lockstep with the backend engine.
+The frontend is a TypeScript, React 19, and Vite application with a landing page and a simulation dashboard. The dashboard provides Canvas intersection views, comparative signal/roundabout playback, metrics, saved run history, volume analysis, validation, and replay controls. Current API payloads and routes are in [../docs/operations.md](../docs/operations.md).
 
 **Owner:** Developer B
-**Tech Stack:** React 18+, TypeScript, Vite, HTML5 Canvas, Vanilla CSS
+**Tech Stack:** React 19, TypeScript, Vite 8, HTML5 Canvas, Tailwind CSS, and Recharts
 
 ---
 
@@ -111,7 +111,8 @@ The React application interfaces with the Python backend via the `useSimulationP
    ```bash
    npm run dev
    ```
-   By default, the Vite dev server runs at `http://localhost:5173`.
+
+By default, the Vite dev server runs at `http://localhost:5173`; use `/` for the landing page and `/app.html` for the dashboard.
 
 ### Production Build
 

@@ -1,15 +1,15 @@
 # Project Management Specifications
 
-This directory contains the project management resources, guidelines, and roadmap documentation for the **Traffic Intersection Control Comparison Framework**.
+This directory contains historical project-management resources, roadmaps, labels, and GitHub automation notes. It is not a statement of current implementation status; use the root README and [operations guide](../operations.md) for the running system.
 
 ## Directory Index
 
 | Document | Purpose |
 |----------|---------|
-| **[roadmap.md](file:///c:/VIRAJ/Internship/Traffic_Simulation_Project_1/docs/project-management/roadmap.md)** | The 14-phase development roadmap, from repository setup to final project demonstration. Contains targets, deliverables, and exit gates. |
-| **[labels.md](file:///c:/VIRAJ/Internship/Traffic_Simulation_Project_1/docs/project-management/labels.md)** | The complete GitHub labeling system containing 42 prefixes-structured labels. Covers components, priorities, tech, status, and difficulties. |
-| **[kanban.md](file:///c:/VIRAJ/Internship/Traffic_Simulation_Project_1/docs/project-management/kanban.md)** | The definition of Kanban columns, WIP limits, automated movement rules, swimlanes, and 8 customized saved views. |
-| **[github-management-package.md](file:///c:/VIRAJ/Internship/Traffic_Simulation_Project_1/docs/project-management/github-management-package.md)** | The master reference package. Cross-maps all 61 issues, their numbers, milestones, label assignments, and dependencies into a single table. |
+| **[roadmap.md](roadmap.md)** | Historical development roadmap and exit gates. |
+| **[labels.md](labels.md)** | GitHub labeling configuration used by automation scripts. |
+| **[kanban.md](kanban.md)** | Historical Kanban columns and saved-view design. |
+| **[github-management-package.md](github-management-package.md)** | GitHub issue, milestone, label, and dependency package. |
 
 ## Quick Start: Project Workspace Setup
 

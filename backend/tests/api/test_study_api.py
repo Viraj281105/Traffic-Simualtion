@@ -37,7 +37,11 @@ def test_api_study_endpoints(tmp_path, monkeypatch) -> None:
     # 3. Get Specific Sweep
     res_get_sweep = client.get(f"/api/v1/study/sweeps/{session_id}")
     assert res_get_sweep.status_code == 200
-    assert res_get_sweep.json()["id"] == session_id
+    sweep_body = res_get_sweep.json()
+    assert sweep_body["id"] == session_id
+    assert sweep_body["sessionId"] == session_id
+    assert "runs" in sweep_body
+    assert "curves" in sweep_body
 
     # 4. List Simulation Runs
     res_runs = client.get("/api/v1/study/history/runs")

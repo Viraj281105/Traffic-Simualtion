@@ -15,4 +15,4 @@ This directory contains research roadmaps, architectural blueprints, and enginee
 
 ## Purpose & Scope
 
-These documents bridge academic simulation research with industrial-grade Intelligent Transportation System (ITS) engineering, establishing clear implementation stages, mathematical requirements, and visual benchmarks.
+These documents are proposals only. They bridge academic simulation research with possible future Intelligent Transportation System (ITS) features, but none of the listed future features should be assumed to exist in the current application.

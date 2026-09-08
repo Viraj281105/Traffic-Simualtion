@@ -69,6 +69,10 @@
   --muted-foreground: 0 0% 0%;
   --accent: 8 86% 65%;
   --accent-foreground: 0 0% 100%;
+  --accent-blue: hsl(220 85% 45%);
+  --accent-green: hsl(142 71% 35%);
+  --accent-yellow: hsl(35 90% 40%);
+  --accent-purple: hsl(270 70% 45%);
   --shadow-glow: 0 0 54px rgba(79, 75, 207, 0.12);
 
   --text-primary: #000000 !important;
@@ -79,6 +83,18 @@
 .light .brand,
 .light .brand-name {
   color: #000000 !important;
+  --bg-primary: #f8fafc;
+  --bg-secondary: #ffffff;
+  --bg-tertiary: #f1f5f9;
+  --bg-card: #ffffff;
+  --bg-hover: rgba(0, 0, 0, 0.05);
+
+  --border-color: hsl(var(--border));
+  --border-accent: hsl(var(--border) / 0.5);
+
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #64748b;
 }
 
 /* ── Reset ──────────────────────────────────────────────────────────────── */

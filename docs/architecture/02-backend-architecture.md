@@ -2,7 +2,7 @@
 
 > **Document Version:** 0.1.0
 > **Last Updated:** 2026-07-23
-> **Status:** Phase 0 — Architecture Specification
+> **Status:** Current implementation reference (audited 2026-09-07)
 > **Owner:** Developer A
 
 ---
@@ -21,6 +21,8 @@ The backend is a **Python application** responsible for:
 The backend is **completely headless** — it has no UI, no HTML, no rendering logic. It produces structured JSON data that the frontend consumes.
 
 ---
+
+The original version of this document described planned `api/`, `config/`, `events/`, `simulation/`, and `utils/` packages. Those packages are not present in the checked-in implementation. Current routes are defined in `backend/src/main.py`; current setup and API behavior are documented in [../operations.md](../operations.md).
 
 ## 2. Folder Structure
 

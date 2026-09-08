@@ -1,18 +1,18 @@
 # Architecture Decision Records (ADRs)
 
-This directory contains the **Architecture Decision Records (ADRs)** for the Traffic Intersection Control Comparison Framework project. These documents record the historical rationale behind key design and technical choices, trade-offs, and consequences.
+This directory contains historical **Architecture Decision Records (ADRs)**. They record intended rationale and trade-offs at the time of the decision; they are not a substitute for the current implementation guide. When an ADR differs from the code, use [the operations guide](../operations.md) and the source tree as the current authority.
 
 ## ADR Library Index
 
 | ID | Title | Status | Date |
 |----|-------|--------|------|
-| **[ADR-001](file:///c:/VIRAJ/Internship/Traffic_Simulation_Project_1/docs/decisions/adr-001-repository-structure.md)** | Repository Structure | Accepted | 2026-07-23 |
-| **[ADR-002](file:///c:/VIRAJ/Internship/Traffic_Simulation_Project_1/docs/decisions/adr-002-backend-frontend-separation.md)** | Backend / Frontend Separation | Accepted | 2026-07-23 |
-| **[ADR-003](file:///c:/VIRAJ/Internship/Traffic_Simulation_Project_1/docs/decisions/adr-003-shared-contract-layer.md)** | Shared Contract Layer | Accepted | 2026-07-23 |
-| **[ADR-004](file:///c:/VIRAJ/Internship/Traffic_Simulation_Project_1/docs/decisions/adr-004-snapshot-based-communication.md)** | Snapshot-Based Communication | Accepted | 2026-07-23 |
-| **[ADR-005](file:///c:/VIRAJ/Internship/Traffic_Simulation_Project_1/docs/decisions/adr-005-metric-contract-design.md)** | Metric Contract Design | Accepted | 2026-07-23 |
-| **[ADR-006](file:///c:/VIRAJ/Internship/Traffic_Simulation_Project_1/docs/decisions/adr-006-scenario-configuration-format.md)** | Scenario Configuration Format | Accepted | 2026-07-23 |
-| **[ADR-007](file:///c:/VIRAJ/Internship/Traffic_Simulation_Project_1/docs/decisions/adr-007-rest-websocket-communication-strategy.md)** | REST + WebSocket Communication Strategy | Accepted | 2026-07-23 |
+| **[ADR-001](adr-001-repository-structure.md)** | Repository Structure | Accepted | 2026-07-23 |
+| **[ADR-002](adr-002-backend-frontend-separation.md)** | Backend / Frontend Separation | Accepted | 2026-07-23 |
+| **[ADR-003](adr-003-shared-contract-layer.md)** | Shared Contract Layer | Accepted | 2026-07-23 |
+| **[ADR-004](adr-004-snapshot-based-communication.md)** | Snapshot-Based Communication | Accepted | 2026-07-23 |
+| **[ADR-005](adr-005-metric-contract-design.md)** | Metric Contract Design | Accepted | 2026-07-23 |
+| **[ADR-006](adr-006-scenario-configuration-format.md)** | Scenario Configuration Format | Accepted | 2026-07-23 |
+| **[ADR-007](adr-007-rest-websocket-communication-strategy.md)** | REST + WebSocket Communication Strategy | Accepted | 2026-07-23 |
 | **[ADR-008](file:///c:/VIRAJ/Internship/Traffic_Simulation_Project_1/docs/decisions/adr-008-repository-branching-strategy.md)** | Repository Branching Strategy | Accepted | 2026-07-23 |
 | **[ADR-009](file:///c:/VIRAJ/Internship/Traffic_Simulation_Project_1/docs/decisions/adr-009-engineering-standards.md)** | Engineering Standards | Accepted | 2026-07-23 |
 | **[ADR-010](file:///c:/VIRAJ/Internship/Traffic_Simulation_Project_1/docs/decisions/adr-010-documentation-organization.md)** | Documentation Organization | Accepted | 2026-07-23 |

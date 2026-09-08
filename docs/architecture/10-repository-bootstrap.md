@@ -2,7 +2,7 @@
 
 > **Document Version:** 0.1.0
 > **Last Updated:** 2026-07-23
-> **Status:** Phase 0 — Architecture Specification
+> **Status:** Historical bootstrap specification
 > **Owner:** Both Developers
 
 ---
@@ -36,7 +36,7 @@ $ cd backend
 $ python -m venv .venv
 $ source .venv/bin/activate  (or .venv\Scripts\activate on Windows)
 $ pip install -r requirements.txt
-$ python -m src.main
+$ .venv/Scripts/python.exe -m uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
 
 ### Frontend Setup
 $ cd frontend

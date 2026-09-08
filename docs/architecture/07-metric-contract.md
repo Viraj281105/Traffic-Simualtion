@@ -2,14 +2,14 @@
 
 > **Document Version:** 0.1.0
 > **Last Updated:** 2026-07-23
-> **Status:** Phase 0 — Architecture Specification
+> **Status:** Current metric reference (audited 2026-09-07)
 > **Owner:** Both Developers (jointly)
 
 ---
 
 ## 1. Overview
 
-This document defines every performance metric used to compare intersection control strategies. The backend computes these metrics; the frontend displays them. Both sides **must interpret every metric identically**.
+This document summarizes the metrics currently returned by `MetricCollector`. The backend computes them and the frontend displays the returned dictionary. The implementation in `backend/src/metrics/collector.py` and `backend/src/metrics/definitions/` is authoritative; metric keys use camelCase.
 
 ### Metric Categories
 

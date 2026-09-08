@@ -2,7 +2,7 @@
 
 > **Document Version:** 0.1.0
 > **Last Updated:** 2026-07-23
-> **Status:** Phase 0 — Architecture Specification
+> **Status:** Current implementation reference (audited 2026-09-07)
 > **Owner:** Both Developers (jointly)
 
 ---
@@ -25,7 +25,9 @@ The frontend and backend communicate through two channels:
 
 ```
 REST:      http://localhost:8000/api/v1/...
-WebSocket: ws://localhost:8000/ws/v1/...
+WebSocket: ws://localhost:8000/ws/v1/stream?simulationId=...
+
+The dashboard also uses the compatibility routes under `/api/simulation/*` and `/ws/simulation/*`. See [../operations.md](../operations.md) for the complete current route list.
 ```
 
 ---
@@ -54,7 +56,7 @@ All endpoints are prefixed with a version identifier:
 | Attribute | Value |
 |-----------|-------|
 | **Method** | `GET` |
-| **Path** | `/api/v1/health` |
+| **Path** | `/health` |
 | **Description** | Server health check |
 | **Request Body** | None |
 
@@ -279,7 +281,7 @@ stateDiagram-v2
 
 ### 4.1 Connection
 
-**URL:** `ws://localhost:8000/ws/v1/stream/{simulationId}`
+**URL:** `ws://localhost:8000/ws/v1/stream?simulationId={simulationId}`
 
 **Connection Flow:**
 ```mermaid
@@ -287,7 +289,7 @@ sequenceDiagram
     participant FE as Frontend
     participant BE as Backend
 
-    FE->>BE: WebSocket Connect /ws/v1/stream/{simId}
+    FE->>BE: WebSocket Connect /ws/v1/stream?simulationId={simId}
     BE-->>FE: CONNECTION_ACK
     Note over FE,BE: Connection established
 
@@ -456,14 +458,14 @@ The frontend development server (Vite) runs on port 5173 by default. The backend
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/api/v1/health` | Health check |
+| `GET` | `/health` | Health check |
 | `POST` | `/api/v1/configs/validate` | Validate config |
 | `POST` | `/api/v1/simulations` | Create simulation |
 | `GET` | `/api/v1/simulations` | List simulations |
 | `GET` | `/api/v1/simulations/{id}` | Get simulation status |
 | `POST` | `/api/v1/simulations/{id}/control` | Control simulation |
 | `GET` | `/api/v1/simulations/{id}/metrics` | Get final metrics |
-| `WS` | `/ws/v1/stream/{id}` | Real-time snapshot stream |
+| `WS` | `/ws/v1/stream?simulationId={id}` | Real-time snapshot stream |
 
 ---
 

@@ -9,23 +9,26 @@ def calculate_throughput(exited_vehicles: List[Vehicle]) -> int:
 
 
 def calculate_throughput_rate(
-    exited_vehicles: List[Vehicle], current_time: float, window_size: float = 60.0
+    exited_vehicles: List[Vehicle],
+    current_time: float,
+    window_size: float = 60.0,
+    warmup_time: float = 0.0,
 ) -> float:
-    """Computes the rolling throughput rate in vehicles per minute over a sliding window."""
-    if not exited_vehicles or current_time <= 0:
+    """Computes the rolling throughput rate in vehicles per minute over a sliding window, excluding warmup."""
+    effective_time = max(0.0, current_time - warmup_time)
+    if not exited_vehicles or effective_time <= 0:
         return 0.0
 
-    # Collect exit times of vehicles that exited within the sliding window
-    start_window = max(0.0, current_time - window_size)
+    # Collect exit times of vehicles that exited within the post-warmup sliding window
+    start_window = max(warmup_time, current_time - window_size)
     window_count = 0
 
     for v in exited_vehicles:
-        # Note: we assume exit_time is recorded on Vehicle when state becomes EXITED.
-        # Let's verify if v has exit_time. In schema it has exitTime.
-        # If exit_time is None or hasattr checks:
         exit_time = getattr(v, "exit_time", None)
         if exit_time is not None and start_window <= exit_time <= current_time:
             window_count += 1
 
-    actual_window = min(current_time, window_size)
+    actual_window = min(effective_time, window_size)
+    if actual_window <= 0:
+        return 0.0
     return (window_count / actual_window) * 60.0

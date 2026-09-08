@@ -1,12 +1,13 @@
 import asyncio
 import csv
 import io
+import json
 import logging
 import random
-import traceback
+import time
 import uuid
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import jsonschema
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
@@ -20,7 +21,8 @@ from src.core.config_models import ScenarioConfiguration
 from src.core.engine import SimulationEngine
 from src.core.enums import SimulationStatus
 from src.database.dao import RunMetricsDAO, SimulationRunDAO, SweepSessionDAO
-from src.database.db import DB_PATH, get_db_connection, init_db
+from src.database.db import DB_PATH, get_db_connection, init_db  # noqa: F401
+from src.database.replay_dao import ReplayDAO
 from src.metrics.collector import MetricCollector
 from src.snapshot.buffer import SnapshotBuffer
 from src.snapshot.builder import SnapshotBuilder
@@ -69,8 +71,6 @@ SCHEMA_PATHS = [
     Path("shared/schemas/config.schema.json"),
 ]
 
-import json
-
 CONFIG_SCHEMA: Dict[str, Any] = {}
 for p in SCHEMA_PATHS:
     if p.is_file():
@@ -78,7 +78,7 @@ for p in SCHEMA_PATHS:
             with open(p, "r", encoding="utf-8") as f:
                 CONFIG_SCHEMA = json.load(f)
             break
-        except Exception:
+        except (OSError, json.JSONDecodeError):
             pass
 
 # ── Global State for Multi-Vehicle Simulations ──────────────────────────────
@@ -643,19 +643,34 @@ def pause_live_simulation() -> Dict[str, Any]:
 @app.websocket("/ws/simulation/live")
 async def websocket_live_stream(websocket: WebSocket) -> None:
     await websocket.accept()
+    last_status: Optional[str] = None
+    last_sent_time = 0.0
+
     try:
         while True:
             sim = get_or_create_live_simulation()
+            engine = sim.get("engine")
             builder = sim.get("builder")
-            if builder is not None:
-                snapshot = builder.build()
-                await websocket.send_json(snapshot)
+            if builder is not None and engine is not None:
+                current_status = engine.status.value.lower()
+                now = time.time()
+
+                if (
+                    current_status != "completed"
+                    or current_status != last_status
+                    or (now - last_sent_time >= 1.0)
+                ):
+                    snapshot = builder.build()
+                    await websocket.send_json(snapshot)
+                    last_status = current_status
+                    last_sent_time = now
+
             # Sleep 100ms for 10Hz frequency
             await asyncio.sleep(0.1)
     except WebSocketDisconnect:
         pass
     except Exception as e:
-        traceback.print_exc()
+        logger.exception("Live simulation websocket failed")
         try:
             await websocket.close(code=1011, reason=str(e))
         except Exception:
@@ -742,19 +757,32 @@ def get_dual_simulation_status() -> Dict[str, Any]:
 @app.websocket("/ws/simulation/dual")
 async def websocket_dual_stream(websocket: WebSocket) -> None:
     await websocket.accept()
+    last_status: Optional[str] = None
+    last_sent_time = 0.0
 
     try:
         while True:
             # Re-fetch orchestrator each frame so config changes are reflected
             orch = get_or_create_dual_orchestrator()
-            snapshot = orch.get_dual_snapshot()
-            await websocket.send_json(snapshot)
+            current_status = orch.get_status()
+            now = time.time()
+
+            if (
+                current_status != "completed"
+                or current_status != last_status
+                or (now - last_sent_time >= 1.0)
+            ):
+                snapshot = orch.get_dual_snapshot()
+                await websocket.send_json(snapshot)
+                last_status = current_status
+                last_sent_time = now
+
             # Sleep 100ms for 10Hz frequency
             await asyncio.sleep(0.1)
     except WebSocketDisconnect:
         pass
     except Exception as e:
-        traceback.print_exc()
+        logger.exception("Dual simulation websocket failed")
         try:
             await websocket.close(code=1011, reason=str(e))
         except Exception:
@@ -800,31 +828,28 @@ def run_sweep_endpoint(payload: VolumeSweepRequest | None = None) -> Dict[str, A
 def list_sweeps_endpoint(limit: int = 20, offset: int = 0) -> list[Dict[str, Any]]:
     """Lists past volume sweep benchmark experiments."""
     init_db()
-    import sqlite3
-
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    try:
+    for conn in get_db_connection():
         return SweepSessionDAO.list_sessions(conn, limit=limit, offset=offset)
-    finally:
-        conn.close()
+    return []
 
 
 @app.get("/api/v1/study/sweeps/{sweep_id}")
 def get_sweep_endpoint(sweep_id: str) -> Dict[str, Any]:
     """Retrieves a specific volume sweep benchmark session."""
     init_db()
-    import sqlite3
-
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    try:
+    for conn in get_db_connection():
         session = SweepSessionDAO.get(conn, sweep_id)
         if not session:
             raise HTTPException(status_code=404, detail="Sweep session not found")
-        return session
-    finally:
-        conn.close()
+        res = dict(session)
+        if isinstance(session.get("results"), dict):
+            for k, v in session["results"].items():
+                if k not in res:
+                    res[k] = v
+        if "sessionId" not in res:
+            res["sessionId"] = res.get("id", sweep_id)
+        return res
+    raise HTTPException(status_code=500, detail="Database connection error")
 
 
 class RunComparisonRequest(BaseModel):
@@ -1087,9 +1112,6 @@ class SaveReplayRequest(BaseModel):
     metrics: Dict[str, Any]
 
 
-from src.database.replay_dao import ReplayDAO
-
-
 @app.post("/api/v1/replays")
 def save_replay(payload: SaveReplayRequest) -> Dict[str, Any]:
     init_db()
@@ -1124,6 +1146,17 @@ def list_replays(limit: int = 50, offset: int = 0) -> list[Dict[str, Any]]:
     for conn in get_db_connection():
         return ReplayDAO.list_all(conn, limit=limit, offset=offset)
     return []
+
+
+@app.get("/api/v1/replays/{replay_id}")
+def get_replay(replay_id: str) -> Dict[str, Any]:
+    init_db()
+    for conn in get_db_connection():
+        replay = ReplayDAO.get(conn, replay_id)
+        if not replay:
+            raise HTTPException(status_code=404, detail="Replay not found")
+        return replay
+    raise HTTPException(status_code=500, detail="Database connection error")
 
 
 @app.delete("/api/v1/replays/{replay_id}")

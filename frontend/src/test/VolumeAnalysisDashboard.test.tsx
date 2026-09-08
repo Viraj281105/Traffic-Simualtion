@@ -59,16 +59,18 @@ describe("VolumeAnalysisDashboard", () => {
     vi.stubGlobal("fetch", vi.fn());
   });
 
-  it("renders the trigger panel with Run Sweep button", () => {
+  it("renders the trigger panel with Run Sweep button", async () => {
     // Return empty sweep list
     vi.mocked(fetch).mockResolvedValueOnce(
       new Response(JSON.stringify([]), { status: 200 }),
     );
 
     render(<VolumeAnalysisDashboard />);
-    expect(
-      screen.getByText(/Run Volume Sweep Experiment/i),
-    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        screen.getByText(/Traffic Volume & Capacity Analysis/i),
+      ).toBeInTheDocument(),
+    );
     expect(
       screen.getByRole("button", { name: /Run Sweep/i }),
     ).toBeInTheDocument();
@@ -82,9 +84,10 @@ describe("VolumeAnalysisDashboard", () => {
     render(<VolumeAnalysisDashboard />);
 
     await waitFor(() =>
-      expect(screen.getByText("Test Sweep")).toBeInTheDocument(),
+      expect(screen.getByText(/Saved Sweeps/i)).toBeInTheDocument(),
     );
-    expect(screen.getByText(/Saved Sweeps/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Saved Sweeps/i }));
+    expect(screen.getByText("Test Sweep")).toBeInTheDocument();
   });
 
   it("displays crossover badge when a sweep session is active", async () => {
@@ -99,10 +102,12 @@ describe("VolumeAnalysisDashboard", () => {
 
     render(<VolumeAnalysisDashboard />);
 
-    // Click saved sweep item after it appears
     await waitFor(() =>
-      expect(screen.getByText("Test Sweep")).toBeInTheDocument(),
+      expect(
+        screen.getByRole("button", { name: /Saved Sweeps/i }),
+      ).toBeInTheDocument(),
     );
+    fireEvent.click(screen.getByRole("button", { name: /Saved Sweeps/i }));
     fireEvent.click(screen.getByText("Test Sweep"));
 
     await waitFor(() =>
@@ -158,14 +163,117 @@ describe("VolumeAnalysisDashboard", () => {
     render(<VolumeAnalysisDashboard />);
 
     await waitFor(() =>
-      expect(screen.getByText("Test Sweep")).toBeInTheDocument(),
+      expect(
+        screen.getByRole("button", { name: /Saved Sweeps/i }),
+      ).toBeInTheDocument(),
     );
+    fireEvent.click(screen.getByRole("button", { name: /Saved Sweeps/i }));
     fireEvent.click(screen.getByText("Test Sweep"));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Head-to-Head Volume Matrix/i),
+      ).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByText(/Head-to-Head Volume Matrix/i));
 
     // The 3 run rows (one per arrival rate)
     await waitFor(() => {
       const rows = screen.getAllByText(/Roundabout|Signal|Tie/);
       expect(rows.length).toBeGreaterThanOrEqual(3);
+    });
+  });
+
+  it("loads a saved sweep with nested results format without crashing", async () => {
+    const nestedPayload = {
+      id: "nested-1",
+      name: "Nested Results Sweep",
+      config: {},
+      created_at: "2026-09-01T12:00:00Z",
+      results: {
+        sessionId: "nested-1",
+        name: "Nested Results Sweep",
+        curves: MOCK_SESSION.curves,
+        runs: [
+          ...MOCK_SESSION.runs,
+          {
+            arrivalRate: 0.2,
+            hourlyVolumeVehPerHour: 720,
+            winner: "tie" as const,
+            delayDeltaPercent: 0.0,
+            signal: {
+              delay: 6.0,
+              delayStdDev: 0.5,
+              delayMin: 5.2,
+              delayMax: 6.8,
+              throughput: 50,
+              queue: 1,
+              queueMax: 2,
+            },
+            roundabout: {
+              delay: 6.1,
+              delayStdDev: 0.4,
+              delayMin: 5.5,
+              delayMax: 6.9,
+              throughput: 50,
+              queue: 1,
+              queueMax: 2,
+            },
+          },
+        ],
+      },
+    };
+
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify([
+            {
+              id: "nested-1",
+              name: "Nested Results Sweep",
+              created_at: "2026-09-01T12:00:00Z",
+            },
+          ]),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(nestedPayload), { status: 200 }),
+      );
+
+    render(<VolumeAnalysisDashboard />);
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /Saved Sweeps/i }),
+      ).toBeInTheDocument(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Saved Sweeps/i }));
+    fireEvent.click(screen.getByText("Nested Results Sweep"));
+
+    await waitFor(() =>
+      expect(screen.getByText(/Capacity Studio/i)).toBeInTheDocument(),
+    );
+
+    // Toggle uncertainty envelopes and delta trend
+    const envelopeBtn = screen.getByRole("button", {
+      name: /± Range Envelopes/i,
+    });
+    expect(envelopeBtn).toBeInTheDocument();
+    fireEvent.click(envelopeBtn);
+
+    const deltaTrendBtn = screen.getByRole("button", {
+      name: /% Delta Trend/i,
+    });
+    expect(deltaTrendBtn).toBeInTheDocument();
+    fireEvent.click(deltaTrendBtn);
+
+    // Switch to Matrix tab and check Parity filter
+    fireEvent.click(screen.getByText(/Head-to-Head Volume Matrix/i));
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /⚖️ Parity/i }),
+      ).toBeInTheDocument();
     });
   });
 });

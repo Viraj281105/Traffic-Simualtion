@@ -217,10 +217,3 @@ export interface Viewport {
   centerWorldX: number;
   centerWorldY: number;
 }
-
-export interface DualSnapshot {
-  tick: number;
-  elapsed: number;
-  signal: LiveSnapshot;
-  roundabout: LiveSnapshot;
-}

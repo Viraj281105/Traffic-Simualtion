@@ -2,12 +2,14 @@
 
 > **Document Version:** 0.1.0
 > **Last Updated:** 2026-07-23
-> **Status:** Phase 0 — Architecture Specification
+> **Status:** Current contract reference (audited 2026-09-07)
 > **Owner:** Both Developers (jointly)
 
 ---
 
 ## 1. Why `shared/` Exists
+
+Only the three JSON files under `shared/schemas/` exist today; the `examples/` directories described in the original proposal were not created. The validator checks JSON syntax and `$schema` presence, while the backend actively validates versioned configuration payloads with `config.schema.json`.
 
 The `shared/` directory is the **single source of truth** for all data contracts between the Backend and Frontend. It exists to solve one fundamental problem:
 

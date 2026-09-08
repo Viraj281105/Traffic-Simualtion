@@ -2,6 +2,13 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { resolve } from "path";
+import type { InlineConfig as VitestInlineConfig } from "vitest/node";
+
+declare module "vite" {
+  interface UserConfig {
+    test?: VitestInlineConfig;
+  }
+}
 
 // https://vitejs.dev/config/
 export default defineConfig({
@@ -28,9 +35,7 @@ export default defineConfig({
   build: {
     rollupOptions: {
       input: {
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call
         main: resolve(__dirname, "index.html"),
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call
         app: resolve(__dirname, "app.html"),
       },
       output: {
