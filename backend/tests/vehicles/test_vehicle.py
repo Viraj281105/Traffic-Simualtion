@@ -2,6 +2,7 @@ import pytest
 
 try:
     from src.core.enums import VehicleState
+    from src.metrics.definitions.stop_count import update_vehicle_stops
     from src.roads.lane import Lane
     from src.vehicles.vehicle import Vehicle
 except ImportError:
@@ -55,11 +56,16 @@ def test_vehicle_kinematics(sample_route: list[Lane]) -> None:
     assert v.position == 5.5  # 0 + 11.0 * 0.5
     assert v.state == VehicleState.APPROACHING
 
-    # Stop tracking hysteresis
+    # Stop tracking hysteresis — stop_count itself is maintained by
+    # update_vehicle_stops() (metrics/definitions/stop_count.py), which the
+    # simulation engine invokes every tick via MetricCollector. update_state()
+    # only manages speed/position/state to avoid double-counting stops.
     v.update_state(acceleration=-24.0, dt=0.5)  # decelerates to 0
     assert v.speed == 0.0
-    assert v.stop_count == 1
     assert v.state == VehicleState.WAITING  # type: ignore[comparison-overlap]
+
+    update_vehicle_stops(v)
+    assert v.stop_count == 1
 
 
 def test_vehicle_lane_transition(sample_route: list[Lane]) -> None:

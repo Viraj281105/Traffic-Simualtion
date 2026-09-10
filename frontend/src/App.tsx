@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useWebSocketSnapshot } from "./hooks/useWebSocketSnapshot";
 import { useSimulationPolling } from "./hooks/useSimulationPolling";
+import { useContainerSize } from "./hooks/useContainerSize";
 import { IntersectionMap } from "./components/IntersectionMap";
 import { RoundaboutMap } from "./components/RoundaboutMap";
 import { MetricsSidebar } from "./components/MetricsSidebar";
@@ -34,6 +35,7 @@ export function App() {
     | "validation"
   >("comparative");
   const [activeReplay, setActiveReplay] = useState<SavedReplay | null>(null);
+  const [showAnalyticsModal, setShowAnalyticsModal] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isLight, setIsLight] = useState(
     () => sessionStorage.getItem("signals-theme") === "light",
@@ -156,6 +158,19 @@ export function App() {
   const intersectionSize = lanes * laneWidth * 2 + 4.0;
 
   const isDual = viewMode === "comparative";
+
+  // Measure canvas containers so maps fill available space
+  const [singleCanvasRef, singleCanvasSize] = useContainerSize();
+  const [compLeftRef, compLeftSize] = useContainerSize();
+  const [compRightRef, compRightSize] = useContainerSize();
+
+  // Compute square-free dimensions: take the full container width, limit height
+  // to the available height minus a small padding to avoid scrollbars.
+  const PADDING = 16;
+  const toCanvasSize = (w: number, h: number) => ({
+    width: Math.max(320, w - PADDING * 2),
+    height: Math.max(280, h - PADDING * 2),
+  });
 
   // Adjust state during render to avoid useEffect warnings
   const configKey = `${lanes.toString()}_${laneWidth.toString()}_${greenDuration.toString()}_${criticalGap.toString()}`;
@@ -521,7 +536,7 @@ export function App() {
         >
           <div
             className="comparison-maps-row"
-            style={{ display: "flex", flex: 1.2, minHeight: 0 }}
+            style={{ display: "flex", flex: 1, minHeight: 0 }}
           >
             {/* Left Column: Fixed-Time Signal */}
             <div className="comparison-column" style={{ flex: 1 }}>
@@ -531,6 +546,7 @@ export function App() {
                 </span>
               </div>
               <div
+                ref={compLeftRef}
                 className="canvas-wrapper"
                 style={{
                   display: "flex",
@@ -538,6 +554,8 @@ export function App() {
                   alignItems: "flex-start",
                   gap: "16px",
                   padding: "0 16px",
+                  flex: 1,
+                  minHeight: 0,
                 }}
               >
                 <IntersectionMap
@@ -551,8 +569,9 @@ export function App() {
                   showCrosswalks={true}
                   showStopLines={showStopLines}
                   debug={debug}
-                  width={600}
-                  height={450}
+                  {...(compLeftSize.width > 0
+                    ? toCanvasSize(compLeftSize.width, compLeftSize.height)
+                    : { width: 520, height: 420 })}
                 />
                 {metricsSnapshotDual && (
                   <CompactVehicleStatePanel
@@ -568,6 +587,7 @@ export function App() {
                 <span className="column-title">🔄 Modern Roundabout</span>
               </div>
               <div
+                ref={compRightRef}
                 className="canvas-wrapper"
                 style={{
                   display: "flex",
@@ -575,6 +595,8 @@ export function App() {
                   alignItems: "flex-start",
                   gap: "16px",
                   padding: "0 16px",
+                  flex: 1,
+                  minHeight: 0,
                 }}
               >
                 <RoundaboutMap
@@ -583,8 +605,9 @@ export function App() {
                   lanes={lanesNorth}
                   showCrosswalks={false}
                   debug={debug}
-                  width={600}
-                  height={450}
+                  {...(compRightSize.width > 0
+                    ? toCanvasSize(compRightSize.width, compRightSize.height)
+                    : { width: 520, height: 420 })}
                 />
                 {metricsSnapshotDual && (
                   <CompactVehicleStatePanel
@@ -601,36 +624,27 @@ export function App() {
             </div>
           </div>
 
-          <div
-            className="comparison-metrics-row"
-            style={{
-              flex: 1,
-              minHeight: 0,
-              borderTop: "1px solid var(--border)",
-              display: "flex",
-              flexDirection: "column",
-            }}
-          >
-            <div
-              style={{
-                padding: "8px 16px",
-                display: "flex",
-                justifyContent: "flex-end",
-              }}
+          <div className="comparative-actions-bar">
+            <button
+              className="pb-btn pb-primary"
+              onClick={handleSaveHistory}
+              disabled={activeIsPlaying || activeReplay !== null}
+              title={
+                activeReplay
+                  ? "Cannot save a replay"
+                  : "Save this simulation to history"
+              }
             >
-              <button
-                className="pb-btn pb-primary"
-                onClick={handleSaveHistory}
-                disabled={activeIsPlaying || activeReplay !== null}
-                title={
-                  activeReplay
-                    ? "Cannot save a replay"
-                    : "Save this simulation to history"
-                }
-              >
-                💾 Save to History
-              </button>
-            </div>
+              💾 Save to History
+            </button>
+            <button
+              className="pb-btn pb-secondary"
+              onClick={() => { setShowAnalyticsModal(true); }}
+            >
+              📊 Comparison Analytics
+            </button>
+          </div>
+          {showAnalyticsModal && (
             <ComparativeDashboard
               snapshot={
                 activeReplay &&
@@ -643,8 +657,9 @@ export function App() {
                   : metricsSnapshotDual
               }
               connectionStatus={activeConnectionStatus}
+              onClose={() => { setShowAnalyticsModal(false); }}
             />
-          </div>
+          )}
         </main>
       ) : viewMode === "history" ? (
         <main className="app-main full-screen" style={{ overflow: "hidden" }}>
@@ -660,7 +675,7 @@ export function App() {
         </main>
       ) : (
         <main className="app-main">
-          <div className="canvas-wrapper">
+          <div ref={singleCanvasRef} className="canvas-wrapper">
             {viewMode === "roundabout" ? (
               <RoundaboutMap
                 snapshot={singleSnapshot}
@@ -668,6 +683,9 @@ export function App() {
                 lanes={lanesNorth}
                 showCrosswalks={false}
                 debug={debug}
+                {...(singleCanvasSize.width > 0
+                  ? toCanvasSize(singleCanvasSize.width, singleCanvasSize.height)
+                  : { width: 680, height: 580 })}
               />
             ) : (
               <IntersectionMap
@@ -681,6 +699,9 @@ export function App() {
                 showCrosswalks={true}
                 showStopLines={showStopLines}
                 debug={debug}
+                {...(singleCanvasSize.width > 0
+                  ? toCanvasSize(singleCanvasSize.width, singleCanvasSize.height)
+                  : { width: 680, height: 580 })}
               />
             )}
           </div>
