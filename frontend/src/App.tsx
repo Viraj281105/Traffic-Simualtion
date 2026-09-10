@@ -705,7 +705,7 @@ export function App() {
               />
             )}
           </div>
-          <div style={{ display: "flex", flexDirection: "column" }}>
+          <div style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
             <div
               style={{
                 padding: "8px 16px",
