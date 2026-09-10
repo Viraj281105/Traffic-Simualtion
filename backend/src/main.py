@@ -860,8 +860,8 @@ def update_simulation_config(payload: Dict[str, Any]) -> Dict[str, Any]:
                 "innerRadius": 10.0,
                 "outerRadius": 20.0,
                 "circulatingLanes": 1,
-                "criticalGap": float(payload.get("criticalGap", 2.5)),
-                "followUpTime": float(payload.get("followUpTime", 1.5)),
+                "criticalGap": float(payload.get("criticalGap", 4.0)),
+                "followUpTime": float(payload.get("followUpTime", 2.5)),
                 "entrySpeed": 5.0,
                 "circulatingSpeed": 8.0,
             }

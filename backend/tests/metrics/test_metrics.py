@@ -271,6 +271,13 @@ def test_average_wait_and_stops_exclude_warmup_contribution() -> None:
     # not the full 4.5s / 3 stops accrued across the vehicle's whole life.
     assert metrics["averageWaitTime"] == 1.5
     assert metrics["averageStopsPerVehicle"] == 1.0
+    # totalStops previously used an unrelated scalar (stops of vehicles
+    # that had already exited *during* warmup — none here) subtracted from
+    # the raw post-warmup-exited stop sum, instead of the same per-vehicle
+    # warmup baseline used by averageStopsPerVehicle above. It must be
+    # consistent with averageStopsPerVehicle: with a single exited
+    # vehicle, totalStops == averageStopsPerVehicle * 1.
+    assert metrics["totalStops"] == 1
 
 
 def test_metric_collector_full_lifecycle() -> None:

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import math
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, FrozenSet, List, Optional, Set, Tuple
 
 from src.core.enums import Direction, TurnIntent, VehicleState
 from src.vehicles.router import find_leader
@@ -19,6 +19,26 @@ logger = logging.getLogger(__name__)
 
 # Minimum centre-to-centre distance before we flag a collision.
 _COLLISION_THRESHOLD: float = 0.5  # meters
+
+# Incoming-lane id prefix -> approach Direction. RoadNetwork always names
+# incoming lanes "{n,s,e,w}_in_{index}" (see RoadNetwork's lane
+# construction), so this single table is shared by every call site here
+# that needs to recover a Direction from a route's origin lane id.
+_INCOMING_LANE_DIRECTIONS: Dict[str, Direction] = {
+    "n_in_": Direction.NORTH,
+    "s_in_": Direction.SOUTH,
+    "e_in_": Direction.EAST,
+    "w_in_": Direction.WEST,
+}
+
+
+def _direction_from_incoming_lane_id(lane_id: str) -> Optional[Direction]:
+    """Maps an incoming-lane id (e.g. "n_in_0") to its approach Direction."""
+    lid = lane_id.lower()
+    for prefix, direction in _INCOMING_LANE_DIRECTIONS.items():
+        if lid.startswith(prefix):
+            return direction
+    return None
 
 
 def _check_sat_overlap(
@@ -68,6 +88,10 @@ class VehiclePool:
         self.exited_vehicles: List[Vehicle] = []
         self._collision_count: int = 0
         self._last_lane_change: Dict[str, float] = {}
+        # Vehicle-id pairs currently overlapping, as of the last audit —
+        # used to count each physical collision once (on the tick it
+        # starts) rather than once per tick the overlap persists.
+        self._colliding_pairs: Set[FrozenSet[str]] = set()
 
     def add_vehicle(self, vehicle: Vehicle) -> None:
         if vehicle not in self.active_vehicles:
@@ -187,8 +211,14 @@ class VehiclePool:
         self._collision_audit()
 
     def _collision_audit(self) -> None:
-        """Scan for overlapping vehicles using Separating Axis Theorem on bounding boxes."""
+        """Scan for overlapping vehicles using Separating Axis Theorem on bounding boxes.
+
+        Debounced: a given pair of vehicles overlapping across multiple
+        consecutive ticks is one collision event, counted once (on the tick
+        the overlap begins), not once per tick the overlap persists.
+        """
         n = len(self.active_vehicles)
+        still_colliding: Set[FrozenSet[str]] = set()
         for i in range(n):
             va = self.active_vehicles[i]
             if va.lane is None:
@@ -242,17 +272,26 @@ class VehiclePool:
                 box_a = va.get_bounding_box()
                 box_b = vb.get_bounding_box()
                 if _check_sat_overlap(box_a, box_b):
-                    self._collision_count += 1
+                    pair_key = frozenset((va.vehicle_id, vb.vehicle_id))
+                    still_colliding.add(pair_key)
+                    is_new_collision = pair_key not in self._colliding_pairs
+                    if is_new_collision:
+                        self._collision_count += 1
+
                     slower = va if va.speed <= vb.speed else vb
                     slower.speed = 0.0
                     slower.acceleration = 0.0
-                    logger.warning(
-                        "Collision detected: %s ↔ %s (lanes: %s ↔ %s)",
-                        va.vehicle_id,
-                        vb.vehicle_id,
-                        va.lane.lane_id,
-                        vb.lane.lane_id,
-                    )
+
+                    if is_new_collision:
+                        logger.warning(
+                            "Collision detected: %s ↔ %s (lanes: %s ↔ %s)",
+                            va.vehicle_id,
+                            vb.vehicle_id,
+                            va.lane.lane_id,
+                            vb.lane.lane_id,
+                        )
+
+        self._colliding_pairs = still_colliding
 
     def get_active_counts(self) -> Dict[Direction, Dict[VehicleState, int]]:
         """Returns active count summaries categorized by direction and current vehicle state."""
@@ -263,16 +302,7 @@ class VehiclePool:
                 continue
 
             # Infer origin direction from route start lane ID
-            lane_id = v.route[0].lane_id.lower()
-            direction = None
-            if lane_id.startswith("n"):
-                direction = Direction.NORTH
-            elif lane_id.startswith("s"):
-                direction = Direction.SOUTH
-            elif lane_id.startswith("e"):
-                direction = Direction.EAST
-            elif lane_id.startswith("w"):
-                direction = Direction.WEST
+            direction = _direction_from_incoming_lane_id(v.route[0].lane_id)
 
             if direction is not None:
                 summary[direction][v.state] += 1
@@ -304,16 +334,7 @@ class VehiclePool:
             return
 
         # Determine approach direction
-        lane_id = current_lane.lane_id.lower()
-        direction = None
-        if lane_id.startswith("n_in_"):
-            direction = Direction.NORTH
-        elif lane_id.startswith("s_in_"):
-            direction = Direction.SOUTH
-        elif lane_id.startswith("e_in_"):
-            direction = Direction.EAST
-        elif lane_id.startswith("w_in_"):
-            direction = Direction.WEST
+        direction = _direction_from_incoming_lane_id(current_lane.lane_id)
 
         if direction is None:
             return

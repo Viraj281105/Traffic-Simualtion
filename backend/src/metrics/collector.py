@@ -43,7 +43,6 @@ class MetricCollector:
         self.reset()
 
     def reset(self) -> None:
-        self.total_stops_in_warmup: int = 0
         self.idle_loss_ticks: int = 0
         self.total_ticks_post_warmup: int = 0
         self.congestion_recovery_time: float = 0.0
@@ -79,8 +78,6 @@ class MetricCollector:
 
         # Discard metrics check during warmup
         if current_time < self.warmup_time:
-            # Track stops during warmup to exclude them from post-warmup metrics
-            self.total_stops_in_warmup = sum(v.stop_count for v in exited_vehicles)
             return
 
         if not self._warmup_baseline_captured:
@@ -246,19 +243,22 @@ class MetricCollector:
             p95_delay = 0.0
             sd_delay = 0.0
 
-        # Compute total stops post-warmup (excluding stops incurred during warmup)
-        total_stops_exited = max(
-            0,
-            sum(v.stop_count for v in post_warmup_exited) - self.total_stops_in_warmup,
-        )
-
-        # average_wait_time / averageStopsPerVehicle: subtract each
-        # vehicle's warmup-boundary baseline (captured in update()) so a
-        # vehicle that was already active when warmup ended doesn't have
+        # average_wait_time / averageStopsPerVehicle / totalStops: subtract
+        # each vehicle's warmup-boundary baseline (captured in update()) so
+        # a vehicle that was already active when warmup ended doesn't have
         # its pre-warmup wait time / stops counted here — mirrors how
         # avg_delay above clips via effective_spawn_t. Vehicles that
         # spawned after warmup have no baseline entry (default 0), so
         # their full wait_time/stop_count counts as-is.
+        #
+        # totalStops previously subtracted a single scalar
+        # (stops of vehicles that had *already exited* during warmup) from
+        # the sum of stops of `post_warmup_exited` vehicles — a set that,
+        # by construction, never includes those already-exited vehicles.
+        # That scalar had no relationship to the quantity it was subtracted
+        # from. Using the same per-vehicle baseline clip as
+        # averageStopsPerVehicle makes totalStops == sum(clipped_stops),
+        # i.e. consistent with avg_stops_per_vehicle * len(post_warmup_exited).
         clipped_waits: List[float] = []
         clipped_stops: List[int] = []
         for v in post_warmup_exited:
@@ -273,6 +273,7 @@ class MetricCollector:
         avg_stops_per_vehicle = (
             round(sum(clipped_stops) / len(clipped_stops), 2) if clipped_stops else 0.0
         )
+        total_stops_exited = sum(clipped_stops)
 
         # Idle opportunity loss
         idle_loss = 0.0
