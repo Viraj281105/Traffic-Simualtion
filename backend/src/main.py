@@ -690,9 +690,13 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "boundingRadius": 15.0,
     },
     "controller": {
-        "straightRightDuration": 15.0,
+        # Matches the canonical greenTime=30/yellowTime=4/allRedTime=2
+        # defaults (docs/architecture/06-scenario-configuration-contract.md,
+        # ControllerSection, CONFIG_SCHEMA) — see
+        # FixedTimeSignalController.__init__ for the same reconciliation.
+        "straightRightDuration": 30.0,
         "leftDuration": 5.0,
-        "yellowDuration": 3.0,
+        "yellowDuration": 4.0,
         "allRedDuration": 2.0,
     },
     "vehicleGeneration": {
@@ -851,6 +855,22 @@ _VALID_INTERSECTION_TYPES: list[str] = CONFIG_SCHEMA["properties"]["geometry"][
 ]["intersectionType"]["enum"]
 
 
+def _generate_random_seed() -> int:
+    """The single authority for auto-generating a live-dashboard random
+    seed, used wherever the dashboard needs a fresh seed because the
+    current one isn't user-defined (initial config, restarting a
+    completed live/dual run, resetting the dual comparison).
+
+    Was previously duplicated at each call site as a bare
+    `random.randint(1, 10000000)`, pulling from the shared global `random`
+    module. Matches the fix already applied in VehicleSpawner and
+    DualSimulationOrchestrator for the same reason: never touch the
+    shared global module's state for a simulation-scoped seed — use a
+    private, independently OS-seeded Random instance instead.
+    """
+    return random.Random().randint(1, 10_000_000)
+
+
 @app.post("/api/simulation/config", dependencies=[Depends(require_api_key)])
 def update_simulation_config(payload: Dict[str, Any]) -> Dict[str, Any]:
     # Unlike /api/v1/simulations and /api/simulation/new, this endpoint
@@ -902,10 +922,10 @@ def update_simulation_config(payload: Dict[str, Any]) -> Dict[str, Any]:
             seed_val = int(raw_seed)
             session.is_user_defined_seed = True
         except (ValueError, TypeError):
-            seed_val = random.randint(1, 10000000)
+            seed_val = _generate_random_seed()
             session.is_user_defined_seed = False
     else:
-        seed_val = random.randint(1, 10000000)
+        seed_val = _generate_random_seed()
         session.is_user_defined_seed = False
 
     # Compile the config dictionary based on user payload
@@ -1007,8 +1027,8 @@ def play_live_simulation() -> Dict[str, Any]:
     if engine.status == SimulationStatus.COMPLETED:
         # Re-randomize seed for the new run only if not explicitly user-defined
         if not session.is_user_defined_seed:
-            session.current_live_config["simulation"]["randomSeed"] = random.randint(
-                1, 10000000
+            session.current_live_config["simulation"]["randomSeed"] = (
+                _generate_random_seed()
             )
         session.live_sim_data["engine"] = None
         sim = get_or_create_live_simulation()
@@ -1099,8 +1119,8 @@ def play_dual_simulation() -> Dict[str, Any]:
                 pass
         session.dual_sim_orchestrator = None
         if not session.is_user_defined_seed:
-            session.current_live_config["simulation"]["randomSeed"] = random.randint(
-                1, 10000000
+            session.current_live_config["simulation"]["randomSeed"] = (
+                _generate_random_seed()
             )
         orch = get_or_create_dual_orchestrator()
         orch.start()
@@ -1133,8 +1153,8 @@ def reset_dual_simulation() -> Dict[str, Any]:
     session.dual_sim_orchestrator = None
     # Generate a fresh shared random seed only if not user-defined
     if not session.is_user_defined_seed:
-        session.current_live_config["simulation"]["randomSeed"] = random.randint(
-            1, 10000000
+        session.current_live_config["simulation"]["randomSeed"] = (
+            _generate_random_seed()
         )
     orch = get_or_create_dual_orchestrator()
     return {

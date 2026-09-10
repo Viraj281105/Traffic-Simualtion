@@ -159,6 +159,25 @@ def test_base_controller_abstract_methods() -> None:
     dummy.reset()
 
 
+def test_fixed_time_signal_default_durations_match_canonical_contract() -> None:
+    """With no duration keys present at all, the controller's fallback
+    defaults must match the documented/canonical greenTime=30,
+    yellowTime=4, allRedTime=2
+    (docs/architecture/06-scenario-configuration-contract.md,
+    ControllerSection, CONFIG_SCHEMA) — not the previously-mismatched
+    straightRightDuration=15/yellowDuration=3 the controller used to fall
+    back to when neither alias was present."""
+    network = RoadNetwork()
+    network.setup_default_intersection(
+        approach_length=100.0, lane_width=3.5, lanes_per_approach=2
+    )
+    ctrl = FixedTimeSignalController({}, network)
+    assert ctrl.straight_right_duration == 30.0
+    assert ctrl.yellow_duration == 4.0
+    assert ctrl.all_red_duration == 2.0
+    assert ctrl.left_duration == 5.0
+
+
 def test_fixed_time_signal_legacy_config_and_lane_intents() -> None:
     network = RoadNetwork()
     network.setup_default_intersection(

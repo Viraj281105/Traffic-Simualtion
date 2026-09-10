@@ -180,6 +180,22 @@ def test_dashboard_config_rejects_unknown_intersection_type() -> None:
     assert res_default.status_code == 200
 
 
+def test_dashboard_config_default_signal_durations_match_canonical_contract() -> None:
+    """A fixed-time-signal dashboard config with no greenDuration/
+    yellowDuration must resolve to the same canonical defaults
+    (greenTime=30, yellowTime=4) as the versioned creation endpoints —
+    DEFAULT_CONFIG previously used mismatched values (15/3)."""
+    res = client.post(
+        "/api/simulation/config", json={"intersectionType": "fixed_time_signal"}
+    )
+    assert res.status_code == 200
+    live_sim = get_or_create_live_simulation()
+    controller = live_sim["controller"]
+    assert controller.straight_right_duration == 30.0
+    assert controller.yellow_duration == 4.0
+    assert controller.all_red_duration == 2.0
+
+
 def test_live_simulation_and_dual_simulation_endpoints() -> None:
     # 1. Get active vehicles
     act_res = client.get("/api/simulation/active-vehicles")

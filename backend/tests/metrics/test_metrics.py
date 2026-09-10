@@ -280,6 +280,69 @@ def test_average_wait_and_stops_exclude_warmup_contribution() -> None:
     assert metrics["totalStops"] == 1
 
 
+def test_critical_saturation_volume_uses_post_warmup_spawned_count() -> None:
+    """criticalSaturationVolume's V_spawned denominator must be the count
+    of vehicles spawned post-warmup (metric contract 4.2: "total vehicles
+    spawned (post-warmup)"), not the raw all-time total_spawned parameter
+    — otherwise a long warmup period inflates the denominator relative to
+    the post-warmup-only throughput numerator, systematically
+    under-reporting CSV."""
+    config = {
+        "simulation": {"warmupTime": 5.0, "timeStep": 1.0},
+        # Deliberately low so the observed post-warmup throughput rate
+        # (0.2 veh/s below) is >= the configured rate: this forces the
+        # "not saturated" branch of calculate_critical_saturation_volume,
+        # i.e. csv = arrival_rate_config * (throughput / V_spawned) — the
+        # branch that actually depends on V_spawned. The other branch
+        # (observed rate below configured rate) ignores V_spawned entirely
+        # and would pass even with the bug this test targets.
+        "traffic": {"arrivalRate": 0.05},
+        "vehicleGeneration": {"stopSpeedThreshold": 0.1, "waitSpeedThreshold": 0.5},
+        "geometry": {"intersectionType": "fixed_time_signal"},
+    }
+    collector = MetricCollector(config)
+    lane_n = DummyLane("n_in_0")
+    signals = {
+        Direction.NORTH: "green",
+        Direction.SOUTH: "red",
+        Direction.EAST: "red",
+        Direction.WEST: "red",
+    }
+
+    # Two vehicles spawned and exited entirely during warmup.
+    warmup_v1 = DummyVehicle(10.0, 0.0, 0, spawn_time=0.0, exit_time=3.0, route=[lane_n])
+    warmup_v1.vehicle_id = "warmup_1"
+    warmup_v2 = DummyVehicle(10.0, 0.0, 0, spawn_time=1.0, exit_time=4.0, route=[lane_n])
+    warmup_v2.vehicle_id = "warmup_2"
+    # One vehicle spawned and exited post-warmup.
+    post_v = DummyVehicle(10.0, 0.0, 0, spawn_time=6.0, exit_time=8.0, route=[lane_n])
+    post_v.vehicle_id = "post_1"
+
+    collector.update(2.0, [], [], signals)
+    collector.update(6.0, [], [], signals)
+
+    exited = [warmup_v1, warmup_v2, post_v]
+    # total_spawned deliberately set far larger than the true post-warmup
+    # spawn count (1) — representing an all-time spawner count dominated
+    # by warmup-period spawns. If CSV still read this parameter directly,
+    # its value would change with it.
+    metrics_inflated = collector.get_metrics(10.0, [], exited, total_spawned=50)
+    metrics_matching = collector.get_metrics(10.0, [], exited, total_spawned=1)
+
+    assert (
+        metrics_inflated["criticalSaturationVolume"]
+        == metrics_matching["criticalSaturationVolume"]
+    )
+    # Explicit expected value: arrival_rate_config(0.05) * (throughput(1) /
+    # true post-warmup spawned count(1)) = 0.05. A denominator of 50
+    # (the inflated all-time total_spawned) would instead give 0.001.
+    assert metrics_inflated["criticalSaturationVolume"] == 0.05
+    # totalVehiclesSpawned (a separate, undocumented diagnostic field) is
+    # unaffected — it still reports whatever total_spawned was passed.
+    assert metrics_inflated["totalVehiclesSpawned"] == 50
+    assert metrics_matching["totalVehiclesSpawned"] == 1
+
+
 def test_metric_collector_full_lifecycle() -> None:
     config = {
         "simulation": {"warmupTime": 5.0, "timeStep": 0.1},

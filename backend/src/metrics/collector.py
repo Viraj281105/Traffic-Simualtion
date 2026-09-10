@@ -1,3 +1,4 @@
+import itertools
 import math
 from typing import Any, Dict, List
 
@@ -139,6 +140,20 @@ class MetricCollector:
             if (v.exit_time is not None and v.exit_time >= self.warmup_time)
             or (v.exit_time is None and v.spawn_time >= self.warmup_time)
         ]
+
+        # V_spawned for criticalSaturationVolume (metric contract
+        # §4.2: "total vehicles spawned (post-warmup)") — distinct from
+        # totalVehiclesSpawned below, which is the all-time spawner count
+        # and has no documented warmup exclusion. Exited vehicles are never
+        # evicted from the pool (see VehiclePool), so active+exited here is
+        # every vehicle spawned so far, letting this be derived directly
+        # from spawn_time rather than requiring separate tick-level
+        # tracking.
+        post_warmup_spawned_count = sum(
+            1
+            for v in itertools.chain(active_vehicles, exited_vehicles)
+            if getattr(v, "spawn_time", 0.0) >= self.warmup_time
+        )
 
         # Calculate current queue lengths
         curr_queues = get_current_queue_lengths(
@@ -341,7 +356,10 @@ class MetricCollector:
                 1,
             ),
             "criticalSaturationVolume": calculate_critical_saturation_volume(
-                self.config, throughput_val, throughput_rate_val, total_spawned
+                self.config,
+                throughput_val,
+                throughput_rate_val,
+                post_warmup_spawned_count,
             ),
         }
         base_metrics["masterEfficiencyScore"] = calculate_master_efficiency_score(

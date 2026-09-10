@@ -103,12 +103,18 @@ class FixedTimeSignalController(BaseController):
 
         ctrl_cfg = config.get("controller", {})
 
-        # Configurable durations (seconds)
+        # Configurable durations (seconds). Fallback defaults here match
+        # the documented/canonical greenTime=30/yellowTime=4/allRedTime=2
+        # (docs/architecture/06-scenario-configuration-contract.md,
+        # ControllerSection in config_models.py, and CONFIG_SCHEMA) so a
+        # config that omits every alias for a given duration still
+        # resolves to the same value regardless of which validation path
+        # (or none) it went through.
         self.straight_right_duration: float = ctrl_cfg.get(
-            "straightRightDuration", 15.0
+            "straightRightDuration", 30.0
         )
         self.left_duration: float = ctrl_cfg.get("leftDuration", 5.0)
-        self.yellow_duration: float = ctrl_cfg.get("yellowDuration", 3.0)
+        self.yellow_duration: float = ctrl_cfg.get("yellowDuration", 4.0)
         self.all_red_duration: float = ctrl_cfg.get("allRedDuration", 2.0)
 
         # Also support legacy keys for backward compat
