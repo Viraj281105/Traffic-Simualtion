@@ -9,10 +9,15 @@ class ConfigurationDAO:
     @staticmethod
     def save(conn: sqlite3.Connection, config_id: str, config: Dict[str, Any]) -> None:
         cursor = conn.cursor()
-        cursor.execute(
-            "INSERT OR REPLACE INTO configurations (id, config_json) VALUES (?, ?);",
-            (config_id, json.dumps(config)),
-        )
+        try:
+            cursor.execute(
+                "INSERT OR REPLACE INTO configurations (id, config_json) VALUES (?, ?);",
+                (config_id, json.dumps(config)),
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
 
     @staticmethod
     def get(conn: sqlite3.Connection, config_id: str) -> Optional[Dict[str, Any]]:
@@ -51,26 +56,31 @@ class SimulationRunDAO:
         seed_val = random_seed if random_seed is not None else 0
         dur_val = duration if duration is not None else elapsed
 
-        cursor.execute(
-            """
-            INSERT OR REPLACE INTO simulation_runs (
-                id, status, elapsed, intersection_type, random_seed, arrival_rate,
-                duration, batch_id, config_json, summary_metrics_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
-            """,
-            (
-                run_id,
-                status,
-                elapsed,
-                intersection_type,
-                seed_val,
-                arrival_rate,
-                dur_val,
-                batch_id,
-                config_str,
-                metrics_str,
-            ),
-        )
+        try:
+            cursor.execute(
+                """
+                INSERT OR REPLACE INTO simulation_runs (
+                    id, status, elapsed, intersection_type, random_seed, arrival_rate,
+                    duration, batch_id, config_json, summary_metrics_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                """,
+                (
+                    run_id,
+                    status,
+                    elapsed,
+                    intersection_type,
+                    seed_val,
+                    arrival_rate,
+                    dur_val,
+                    batch_id,
+                    config_str,
+                    metrics_str,
+                ),
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
 
     @staticmethod
     def get(conn: sqlite3.Connection, run_id: str) -> Optional[Dict[str, Any]]:
@@ -160,10 +170,15 @@ class RunMetricsDAO:
         conn: sqlite3.Connection, run_id: str, tick: int, metrics: Dict[str, Any]
     ) -> None:
         cursor = conn.cursor()
-        cursor.execute(
-            "INSERT OR REPLACE INTO run_metrics (run_id, tick, metrics_json) VALUES (?, ?, ?);",
-            (run_id, tick, json.dumps(metrics)),
-        )
+        try:
+            cursor.execute(
+                "INSERT OR REPLACE INTO run_metrics (run_id, tick, metrics_json) VALUES (?, ?, ?);",
+                (run_id, tick, json.dumps(metrics)),
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
 
     @staticmethod
     def get_all_for_run(conn: sqlite3.Connection, run_id: str) -> list[Dict[str, Any]]:
@@ -211,10 +226,15 @@ class SweepSessionDAO:
         results: Dict[str, Any],
     ) -> None:
         cursor = conn.cursor()
-        cursor.execute(
-            "INSERT OR REPLACE INTO sweep_sessions (id, name, config_json, results_json) VALUES (?, ?, ?, ?);",
-            (session_id, name, json.dumps(config), json.dumps(results)),
-        )
+        try:
+            cursor.execute(
+                "INSERT OR REPLACE INTO sweep_sessions (id, name, config_json, results_json) VALUES (?, ?, ?, ?);",
+                (session_id, name, json.dumps(config), json.dumps(results)),
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
 
     @staticmethod
     def get(conn: sqlite3.Connection, session_id: str) -> Optional[Dict[str, Any]]:

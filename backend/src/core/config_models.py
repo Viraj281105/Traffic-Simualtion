@@ -74,6 +74,7 @@ class VehicleGenerationSection(BaseModel):
 
 class ControllerSection(BaseModel):
     greenTime: float = Field(30.0, gt=5, le=120)
+    leftDuration: float = Field(5.0, gt=0, le=60)
     yellowTime: float = Field(4.0, gt=2, le=8)
     allRedTime: float = Field(2.0, ge=0, le=5)
     phaseSequence: List[str] = Field(

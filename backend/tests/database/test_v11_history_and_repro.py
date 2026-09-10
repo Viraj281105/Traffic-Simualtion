@@ -20,7 +20,7 @@ def test_db(tmp_path, monkeypatch):
 
 def test_sqlite_pragmas_and_wal(test_db):
     """Verifies that SQLite WAL mode, foreign keys, and busy timeout are active."""
-    for conn in get_db_connection():
+    with get_db_connection() as conn:
         # Journal mode should be WAL
         mode = conn.execute("PRAGMA journal_mode;").fetchone()[0]
         assert mode.lower() == "wal"
@@ -59,7 +59,7 @@ def test_schema_migration_safe_upgrade(tmp_path, monkeypatch):
     monkeypatch.setattr(db_module, "DB_PATH", legacy_db_file)
     init_db()
 
-    for migrated_conn in get_db_connection():
+    with get_db_connection() as migrated_conn:
         cursor = migrated_conn.execute("PRAGMA table_info(simulation_runs);")
         cols = {row[1] for row in cursor.fetchall()}
         assert "intersection_type" in cols
@@ -80,7 +80,7 @@ def test_schema_migration_safe_upgrade(tmp_path, monkeypatch):
 
 def test_dao_enriched_persistence_and_filtering(test_db):
     """Tests saving and filtering runs with exact seed, type, config, and metrics."""
-    for conn in get_db_connection():
+    with get_db_connection() as conn:
         cfg_sig = {
             "simulation": {"duration": 10.0, "timeStep": 0.1, "randomSeed": 777},
             "geometry": {"intersectionType": "fixed_time_signal"},
@@ -157,7 +157,7 @@ def test_api_runs_compare_and_history(test_db):
     client = TestClient(app)
 
     # Populate two runs with identical seed for A/B comparison
-    for conn in get_db_connection():
+    with get_db_connection() as conn:
         SimulationRunDAO.save(
             conn,
             run_id="comp_sig_1",
@@ -263,7 +263,7 @@ def test_api_run_reproduce(test_db):
     }
 
     # First run reproduction once to get baseline metrics
-    for conn in get_db_connection():
+    with get_db_connection() as conn:
         SimulationRunDAO.save(
             conn,
             run_id="repro_test_run",
@@ -285,7 +285,7 @@ def test_api_run_reproduce(test_db):
     metrics_generated = first_data["reproducedMetrics"]
 
     # Now update run with the known metrics and reproduce again to verify bit-exact determinism
-    for conn in get_db_connection():
+    with get_db_connection() as conn:
         SimulationRunDAO.save(
             conn,
             run_id="repro_test_run",

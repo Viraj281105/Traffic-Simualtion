@@ -100,7 +100,7 @@ def run_volume_sweep_experiment(
 
     crossover_rate: Optional[float] = None
 
-    for conn in get_db_connection():
+    with get_db_connection() as conn:
         for rate in rates:
             step_config = json.loads(json.dumps(base_config))
             step_config["traffic"]["arrivalRate"] = rate

@@ -62,24 +62,26 @@ def health_check() -> Dict[str, str]:
     return {"status": "healthy"}
 
 
-# Load schemas for validation
-SCHEMA_PATHS = [
-    Path(__file__).resolve().parent.parent.parent
-    / "shared"
-    / "schemas"
-    / "config.schema.json",
-    Path("shared/schemas/config.schema.json"),
-]
+# Load the shared config JSON schema, resolved relative to this package's
+# location on disk (backend/src/main.py -> repo root / shared / schemas),
+# never a machine-specific absolute path or the process's CWD. Validation
+# against this schema is a security/correctness boundary (see
+# create_simulation() and validate_config()), so a missing or unreadable
+# schema must fail application startup loudly rather than silently falling
+# back to an empty schema that would make validation a no-op.
+CONFIG_SCHEMA_PATH = (
+    Path(__file__).resolve().parents[2] / "shared" / "schemas" / "config.schema.json"
+)
 
-CONFIG_SCHEMA: Dict[str, Any] = {}
-for p in SCHEMA_PATHS:
-    if p.is_file():
-        try:
-            with open(p, "r", encoding="utf-8") as f:
-                CONFIG_SCHEMA = json.load(f)
-            break
-        except (OSError, json.JSONDecodeError):
-            pass
+try:
+    with open(CONFIG_SCHEMA_PATH, "r", encoding="utf-8") as f:
+        CONFIG_SCHEMA: Dict[str, Any] = json.load(f)
+except (OSError, json.JSONDecodeError) as exc:
+    raise RuntimeError(
+        f"Failed to load required config schema from {CONFIG_SCHEMA_PATH}. "
+        "The application cannot start without it, since configuration "
+        "validation would otherwise silently become a no-op."
+    ) from exc
 
 # ── Global State for Multi-Vehicle Simulations ──────────────────────────────
 # Dict mapping simulation_id -> { "engine": SimulationEngine, "collector": MetricCollector, "controller": Any }
@@ -207,11 +209,6 @@ def get_active_vehicles() -> list[dict[str, Any]]:
 # ── Full Scenario Configuration Validation Route ────────────────────────────
 @app.post("/api/v1/configs/validate")
 def validate_config(payload: Dict[str, Any]) -> Dict[str, Any]:
-    if not CONFIG_SCHEMA:
-        return {
-            "valid": True,
-            "message": "Schema validation skipped (schema not found)",
-        }
     try:
         jsonschema.validate(instance=payload, schema=CONFIG_SCHEMA)
         return {"valid": True, "errors": []}
@@ -226,41 +223,129 @@ def create_simulation_v2(payload: ScenarioConfiguration) -> Dict[str, Any]:
     return create_simulation(config_dict)
 
 
+def _persist_completed_run(
+    sim_id: str, config: Dict[str, Any], engine: SimulationEngine, collector: MetricCollector
+) -> None:
+    """Records a completed (or stopped) simulation into simulation_runs.
+
+    Reads the random seed straight from the spawner — the single
+    authoritative place a seed is resolved (see VehicleSpawner.__init__) —
+    so the persisted seed is always the exact one actually used, whether it
+    was user-supplied or auto-generated. Any failure here is logged and
+    swallowed rather than propagated, so a database hiccup can never flip an
+    otherwise-successful simulation into an error state.
+    """
+    try:
+        itype = config.get("geometry", {}).get("intersectionType", "unknown")
+        seed = (
+            engine.spawner.random_seed
+            if engine.spawner is not None
+            else config.get("simulation", {}).get("randomSeed", 0)
+        )
+        arrival_rate = config.get("traffic", {}).get("arrivalRate", 0.5)
+        elapsed = engine.clock.get_elapsed_time()
+        final_metrics = collector.get_metrics(
+            elapsed,
+            engine.pool.active_vehicles,
+            engine.pool.exited_vehicles,
+            engine.spawner.spawned_count if engine.spawner else 0,
+        )
+        with get_db_connection() as conn:
+            SimulationRunDAO.save(
+                conn,
+                sim_id,
+                "completed",
+                elapsed,
+                intersection_type=itype,
+                random_seed=seed,
+                arrival_rate=arrival_rate,
+                duration=elapsed,
+                config=config,
+                summary_metrics=final_metrics,
+            )
+    except Exception:
+        logger.exception("Failed to persist simulation run %s to history", sim_id)
+
+
+# Bound the in-memory simulation registry so it cannot grow without limit.
+MAX_CONCURRENT_SIMULATIONS = 50
+
+
+def _evict_completed_simulations() -> None:
+    """Evicts the oldest completed/errored simulations to make room.
+
+    Never evicts a RUNNING or PAUSED simulation.
+    """
+    if len(simulations_db) < MAX_CONCURRENT_SIMULATIONS:
+        return
+
+    evictable = [
+        (sid, entry)
+        for sid, entry in simulations_db.items()
+        if entry["engine"].status in (SimulationStatus.COMPLETED, SimulationStatus.ERROR)
+    ]
+    evictable.sort(key=lambda item: item[1].get("created_at", 0.0))
+
+    slots_needed = len(simulations_db) - MAX_CONCURRENT_SIMULATIONS + 1
+    for sid, _ in evictable[:slots_needed]:
+        del simulations_db[sid]
+
+
 @app.post("/api/v1/simulations")
 def create_simulation(config: Dict[str, Any]) -> Dict[str, Any]:
-    # Validate configuration
-    if CONFIG_SCHEMA:
-        try:
-            jsonschema.validate(instance=config, schema=CONFIG_SCHEMA)
-        except jsonschema.ValidationError as err:
-            raise HTTPException(
-                status_code=400, detail=f"Invalid configuration: {err.message}"
-            )
+    # Validate configuration against the schema (schema-level shape/bounds).
+    try:
+        jsonschema.validate(instance=config, schema=CONFIG_SCHEMA)
+    except jsonschema.ValidationError as err:
+        raise HTTPException(
+            status_code=400, detail=f"Invalid configuration: {err.message}"
+        )
+
+    _evict_completed_simulations()
+    if len(simulations_db) >= MAX_CONCURRENT_SIMULATIONS:
+        raise HTTPException(
+            status_code=429, detail="Maximum concurrent simulations reached"
+        )
 
     sim_id = str(uuid.uuid4())
     config_id = str(uuid.uuid4())
 
-    # Ensure simulation section has a randomSeed if not provided
-    if "simulation" not in config:
-        config["simulation"] = {}
-    if config["simulation"].get("randomSeed") is None:
-        config["simulation"]["randomSeed"] = random.randint(1, 10000000)
+    # Instantiate clock, engine, collector, and controller. This can raise
+    # ValueError/KeyError/TypeError for a config that passed schema
+    # validation but is semantically invalid (e.g. duration <= 0, an
+    # unsupported phaseSequence entry) — surface those as 400s, not a raw
+    # 500, since they are still the client's fault.
+    try:
+        clock = Clock(time_step=config.get("simulation", {}).get("timeStep", 0.1))
+        duration = config.get("simulation", {}).get("duration", 300)
+        engine = SimulationEngine(clock, duration=duration, config=config)
 
-    # Instantiate clock, engine, collector, and controller
-    clock = Clock(time_step=config.get("simulation", {}).get("timeStep", 0.1))
-    duration = config.get("simulation", {}).get("duration", 300)
-    engine = SimulationEngine(clock, duration=duration, config=config)
+        controller = create_controller(config, engine.network)
+        engine.controller = controller
 
-    controller = create_controller(config, engine.network)
-    engine.controller = controller
+        collector = MetricCollector(config)
+    except (ValueError, KeyError, TypeError) as exc:
+        raise HTTPException(
+            status_code=400, detail=f"Invalid configuration: {exc}"
+        ) from exc
 
-    collector = MetricCollector(config)
     builder = SnapshotBuilder(sim_id, config_id, engine, collector, controller)
     buffer = SnapshotBuffer(max_frames=1000)
 
     # Register tick callback on engine to update collector and controller
     engine.register_tick_callback(
         build_tick_callback(controller, clock, engine, collector, buffer, builder)
+    )
+    # Persist to run history the moment the simulation completes (naturally
+    # or via an explicit stop) — the single existing "run-save flow" this
+    # extends to cover ordinary /api/v1/simulations runs, not just sweeps
+    # and manually-saved replays.
+    engine.register_status_callback(
+        lambda new_status: (
+            _persist_completed_run(sim_id, config, engine, collector)
+            if new_status == SimulationStatus.COMPLETED
+            else None
+        )
     )
 
     simulations_db[sim_id] = {
@@ -269,6 +354,7 @@ def create_simulation(config: Dict[str, Any]) -> Dict[str, Any]:
         "controller": controller,
         "config_id": config_id,
         "buffer": buffer,
+        "created_at": time.time(),
     }
 
     return {
@@ -276,6 +362,23 @@ def create_simulation(config: Dict[str, Any]) -> Dict[str, Any]:
         "configId": config_id,
         "status": engine.status.value.lower(),
     }
+
+
+@app.delete("/api/v1/simulations/{sim_id}")
+def delete_simulation(sim_id: str) -> Dict[str, Any]:
+    """Explicitly removes a simulation from the in-memory registry.
+
+    Refuses to delete a RUNNING/PAUSED simulation — stop it first.
+    """
+    sim = _get_simulation_or_404(sim_id)
+    engine = sim["engine"]
+    if engine.status in (SimulationStatus.RUNNING, SimulationStatus.PAUSED):
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot delete a running or paused simulation; stop it first.",
+        )
+    del simulations_db[sim_id]
+    return {"status": "deleted", "simulationId": sim_id}
 
 
 @app.post("/api/v1/simulations/{sim_id}/control")
@@ -468,7 +571,8 @@ def get_or_create_live_simulation() -> Dict[str, Any]:
     global current_live_config
     if live_sim_data["engine"] is None:
         clock = Clock(time_step=0.1)
-        engine = SimulationEngine(clock, duration=300, config=current_live_config)
+        duration = current_live_config.get("simulation", {}).get("duration", 300)
+        engine = SimulationEngine(clock, duration=duration, config=current_live_config)
         controller = create_controller(current_live_config, engine.network)
         engine.controller = controller
 
@@ -833,7 +937,7 @@ def run_sweep_endpoint(payload: VolumeSweepRequest | None = None) -> Dict[str, A
 def list_sweeps_endpoint(limit: int = 20, offset: int = 0) -> list[Dict[str, Any]]:
     """Lists past volume sweep benchmark experiments."""
     init_db()
-    for conn in get_db_connection():
+    with get_db_connection() as conn:
         return SweepSessionDAO.list_sessions(conn, limit=limit, offset=offset)
     return []
 
@@ -842,7 +946,7 @@ def list_sweeps_endpoint(limit: int = 20, offset: int = 0) -> list[Dict[str, Any
 def get_sweep_endpoint(sweep_id: str) -> Dict[str, Any]:
     """Retrieves a specific volume sweep benchmark session."""
     init_db()
-    for conn in get_db_connection():
+    with get_db_connection() as conn:
         session = SweepSessionDAO.get(conn, sweep_id)
         if not session:
             raise HTTPException(status_code=404, detail="Sweep session not found")
@@ -872,7 +976,7 @@ def list_simulation_runs_endpoint(
 ) -> list[Dict[str, Any]]:
     """Lists past simulation runs with their status, metrics, and filters."""
     init_db()
-    for conn in get_db_connection():
+    with get_db_connection() as conn:
         return SimulationRunDAO.list_runs(
             conn,
             limit=limit,
@@ -888,7 +992,7 @@ def list_simulation_runs_endpoint(
 def get_simulation_run_endpoint(run_id: str) -> Dict[str, Any]:
     """Retrieves metadata and time-series metrics for a specific simulation run."""
     init_db()
-    for conn in get_db_connection():
+    with get_db_connection() as conn:
         run = SimulationRunDAO.get(conn, run_id)
         if not run:
             raise HTTPException(status_code=404, detail="Simulation run not found")
@@ -901,7 +1005,7 @@ def get_simulation_run_endpoint(run_id: str) -> Dict[str, Any]:
 def compare_runs_endpoint(payload: RunComparisonRequest) -> Dict[str, Any]:
     """Compares two historical simulation runs side-by-side with delta analysis."""
     init_db()
-    for conn in get_db_connection():
+    with get_db_connection() as conn:
         run_a = SimulationRunDAO.get(conn, payload.runIdA)
         if not run_a:
             raise HTTPException(
@@ -978,7 +1082,7 @@ def compare_runs_endpoint(payload: RunComparisonRequest) -> Dict[str, Any]:
 def reproduce_run_endpoint(run_id: str) -> Dict[str, Any]:
     """Re-executes the exact run headlessly using its stored configuration and seed to verify determinism."""
     init_db()
-    for conn in get_db_connection():
+    with get_db_connection() as conn:
         run = SimulationRunDAO.get(conn, run_id)
         if not run:
             raise HTTPException(
@@ -1120,7 +1224,7 @@ class SaveReplayRequest(BaseModel):
 @app.post("/api/v1/replays")
 def save_replay(payload: SaveReplayRequest) -> Dict[str, Any]:
     init_db()
-    for conn in get_db_connection():
+    with get_db_connection() as conn:
         replay_id = ReplayDAO.save(conn, payload.name, payload.config, payload.metrics)
         # Also persist to simulation_runs for history and reproducible comparison
         itype = payload.config.get("geometry", {}).get("intersectionType", "unknown")
@@ -1148,7 +1252,7 @@ def save_replay(payload: SaveReplayRequest) -> Dict[str, Any]:
 @app.get("/api/v1/replays")
 def list_replays(limit: int = 50, offset: int = 0) -> list[Dict[str, Any]]:
     init_db()
-    for conn in get_db_connection():
+    with get_db_connection() as conn:
         return ReplayDAO.list_all(conn, limit=limit, offset=offset)
     return []
 
@@ -1156,7 +1260,7 @@ def list_replays(limit: int = 50, offset: int = 0) -> list[Dict[str, Any]]:
 @app.get("/api/v1/replays/{replay_id}")
 def get_replay(replay_id: str) -> Dict[str, Any]:
     init_db()
-    for conn in get_db_connection():
+    with get_db_connection() as conn:
         replay = ReplayDAO.get(conn, replay_id)
         if not replay:
             raise HTTPException(status_code=404, detail="Replay not found")
@@ -1167,7 +1271,7 @@ def get_replay(replay_id: str) -> Dict[str, Any]:
 @app.delete("/api/v1/replays/{replay_id}")
 def delete_replay(replay_id: str) -> Dict[str, Any]:
     init_db()
-    for conn in get_db_connection():
+    with get_db_connection() as conn:
         success = ReplayDAO.delete(conn, replay_id)
         if not success:
             raise HTTPException(status_code=404, detail="Replay not found")
