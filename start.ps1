@@ -54,7 +54,11 @@ else {
 
     if ($dockerAvailable) {
         Write-Host "Starting Docker database & backend services (docker compose up -d)..."
-        docker compose up -d backend
+        # docker-compose.yml (prod) intentionally does not publish backend
+        # port 8000 to the host; use the dev compose file here so the
+        # native frontend dev server (and this script's own health check)
+        # can reach it at localhost:8000.
+        docker compose -f docker-compose.dev.yml up -d backend
         
         Write-Host "Waiting for backend database service to become healthy..."
         $attempts = 0
