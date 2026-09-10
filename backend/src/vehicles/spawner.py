@@ -1,3 +1,4 @@
+import logging
 import math
 import random
 from typing import Any, Dict, List, Optional
@@ -6,6 +7,8 @@ from src.core.enums import Direction, TurnIntent
 from src.roads.lane import Lane
 from src.roads.network import RoadNetwork
 from src.vehicles.vehicle import Vehicle
+
+logger = logging.getLogger(__name__)
 
 
 class VehicleSpawner:
@@ -22,12 +25,33 @@ class VehicleSpawner:
         self.network: RoadNetwork = network
 
         traffic_cfg = config.get("traffic", {})
-        sim_cfg = config.get("simulation", {})
+        # setdefault (not get) so that if we generate a fallback seed below,
+        # writing it into sim_cfg is visible to every other holder of this
+        # same config dict (engine, API handlers, persistence/reproduction
+        # code) via config["simulation"]["randomSeed"].
+        sim_cfg = config.setdefault("simulation", {})
         veh_gen_cfg = config.get("vehicleGeneration", {})
 
         self.random_seed: int = sim_cfg.get("randomSeed", veh_gen_cfg.get("seed", None))
         if self.random_seed is None:
-            self.random_seed = random.randint(1, 10000000)
+            # Never fall back to the shared global `random` module — its
+            # state is process-wide and can be perturbed by unrelated code
+            # (including other concurrent simulations), which is exactly
+            # the kind of silent, hidden non-determinism a "randomSeed"
+            # config knob is meant to avoid. Use a private, independently
+            # OS-seeded Random instance instead, purely to pick this
+            # simulation's own seed.
+            self.random_seed = random.Random().randint(1, 10_000_000)
+            logger.warning(
+                "No simulation.randomSeed configured; generated seed=%d "
+                "for this run. Pass randomSeed explicitly for reproducible "
+                "runs.",
+                self.random_seed,
+            )
+            # Persist the resolved seed back into the shared config so it
+            # can be captured/logged/persisted by callers (e.g. the run
+            # history and reproduce endpoints in main.py).
+            sim_cfg["randomSeed"] = self.random_seed
         self.rng: random.Random = random.Random(self.random_seed)
 
         self.total_vehicles_limit: int = traffic_cfg.get("totalVehicles", 200)
@@ -78,6 +102,11 @@ class VehicleSpawner:
 
         # Safety distance
         self.minimum_gap: float = veh_gen_cfg.get("minimumGap", 2.0)
+
+        # Speed below which a vehicle is considered "waiting" — must match
+        # MetricCollector's wait_speed_threshold so wait-time accounting is
+        # consistent between the vehicle and the metrics layer.
+        self.wait_speed_threshold: float = veh_gen_cfg.get("waitSpeedThreshold", 0.5)
 
         # Vehicles spawned count
         self.spawned_count: int = 0
@@ -273,6 +302,7 @@ class VehicleSpawner:
             initial_speed=v_desired_speed,  # starts moving at free-flow speed
             turn_intent=turn,
             spawn_time=self._elapsed_time,
+            wait_speed_threshold=self.wait_speed_threshold,
         )
 
         return vehicle

@@ -3,13 +3,30 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
-    ports:
-      - "8000:8000"
+    # No `ports:` mapping — the backend is reachable from the frontend
+    # container over the compose-internal network at http://backend:8000
+    # (see frontend/nginx.conf's proxy_pass blocks), and does not need to
+    # be published to the host/internet: nginx already proxies /api/,
+    # /ws/, and /health for it. For direct host access during local
+    # development, use docker-compose.dev.yml instead, which publishes
+    # 8000:8000 explicitly.
+    expose:
+      - "8000"
     environment:
       - HOST=0.0.0.0
       - PORT=8000
       - PYTHONPATH=/app
       - DB_PATH=/app/data/simulation.db
+      # Comma-separated list of allowed CORS origins (never combined with
+      # a wildcard when credentials are enabled). Defaults to the local
+      # Vite dev server; override via a real .env file or shell export for
+      # a custom deployment domain — never hardcoded here.
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
+      # Minimal bearer-token protection for mutating/compute-heavy
+      # endpoints. Empty by default (auth disabled) to keep local
+      # development frictionless; set API_KEY in your environment/.env to
+      # require `Authorization: Bearer <API_KEY>` on those routes.
+      - API_KEY=${API_KEY:-}
     volumes:
       - traffic_data:/app/data
     restart: unless-stopped
@@ -29,14 +46,14 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     ports:
-      - "80:80"
-      - "3000:80"
+      - "80:8080"
+      - "3000:8080"
     depends_on:
       backend:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:80/health"]
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/health"]
       interval: 15s
       timeout: 5s
       start_period: 5s

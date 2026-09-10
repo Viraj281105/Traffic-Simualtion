@@ -91,8 +91,13 @@ jobs:
       - name: Verify Full Stack Health & Services
         run: |
           echo "Waiting for containerized services to become healthy..."
+          # The backend container intentionally does not publish port 8000 to
+          # the host (see docker-compose.yml) — it's only reachable over the
+          # compose-internal network, proxied by nginx at /health. So the
+          # backend check goes through the frontend's published port, same as
+          # a real client would reach it.
           for i in {1..20}; do
-            BACKEND_HEALTH=$(curl -s http://localhost:8000/health || echo "down")
+            BACKEND_HEALTH=$(curl -s http://localhost:80/health || echo "down")
             FRONTEND_HTTP=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:80 || echo "000")
             echo "Tick $i: Backend='$BACKEND_HEALTH', Frontend HTTP='$FRONTEND_HTTP'"
 

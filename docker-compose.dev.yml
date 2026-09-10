@@ -10,6 +10,11 @@ services:
       - PORT=8000
       - PYTHONPATH=/app
       - DB_PATH=/app/data/simulation.db
+      # Auth/CORS are dev-friendly by default (see backend/src/main.py):
+      # CORS_ORIGINS defaults to the Vite dev server, API_KEY defaults to
+      # empty (auth disabled). Override via .env/shell export if needed.
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
+      - API_KEY=${API_KEY:-}
     volumes:
       - ./backend/src:/app/src
       - ./shared:/app/shared
@@ -18,7 +23,7 @@ services:
     restart: unless-stopped
 
   frontend:
-    image: node:20-alpine
+    image: node:20.20.2-alpine
     working_dir: /app
     volumes:
       - ./frontend:/app

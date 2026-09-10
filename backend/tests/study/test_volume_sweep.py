@@ -8,7 +8,6 @@ from src.study.volume_sweep import run_volume_sweep_experiment
 def test_volume_sweep_execution(tmp_path, monkeypatch) -> None:
     test_db = str(tmp_path / "test_sweep_run.db")
     monkeypatch.setattr("src.database.db.DB_PATH", test_db)
-    monkeypatch.setattr("src.database.sweep_runner.DB_PATH", test_db)
     monkeypatch.setattr("src.study.volume_sweep.DB_PATH", test_db)
 
     init_db()

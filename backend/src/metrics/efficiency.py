@@ -18,8 +18,11 @@ def calculate_master_efficiency_score(metrics: Dict[str, Any]) -> float:
     idle_loss = float(metrics.get("idleOpportunityLoss", 0.0))
 
     # Normalization mappings to prevent runaway bounds
-    # Throughput rate: normalize against a high limit of 2.0 vehicles/sec (120 veh/min)
-    tp_per_sec = throughput_rate / 60.0 if throughput_rate > 2.0 else throughput_rate
+    # throughputRate is always reported in vehicles/minute (see
+    # docs/architecture/07-metric-contract.md section 2.2), so it is always
+    # converted to vehicles/sec before normalizing against a high limit of
+    # 2.0 vehicles/sec (120 veh/min).
+    tp_per_sec = throughput_rate / 60.0
     tp_norm = min(1.0, tp_per_sec / 2.0)
 
     # Average wait time: normalized (1.0 at 0s, 0.0 at 60s or more wait)

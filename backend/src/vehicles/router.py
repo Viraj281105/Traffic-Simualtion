@@ -30,6 +30,22 @@ _SENSOR_RANGE: float = 30.0  # meters — max 360° sensor reach
 _LOOK_AHEAD_LANES: int = 3  # how many route lanes to scan forward
 
 
+def _conn_lane_index(lane_id: str) -> Optional[int]:
+    """Extract the circulating lane index from a roundabout connection lane id.
+
+    Connection lane ids follow ``conn_{origin}_{lane_idx}_{turn}`` (see
+    RoadNetwork._get_or_create_connection_lane). Returns ``None`` if the id
+    doesn't match that shape.
+    """
+    parts = lane_id.split("_")
+    if len(parts) >= 3:
+        try:
+            return int(parts[2])
+        except ValueError:
+            return None
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -279,10 +295,21 @@ def find_leader(
             id_a = vehicle.lane.lane_id.lower()
             id_b = other.lane.lane_id.lower()
             if getattr(network, "is_roundabout", False):
-                # In a roundabout, skip straight-line emergency check if either vehicle is on a connection lane
-                # because they are already tracked by the circular/arc-length logic in Layer 1.
-                if id_a.startswith("conn") or id_b.startswith("conn"):
-                    continue
+                # In a roundabout, vehicles circulating in the SAME lane
+                # index are already tracked by the angular arc-length logic
+                # in Layer 1 above, so skip them here to avoid double
+                # braking. Vehicles on DIFFERENT circulating lane indices
+                # (e.g. weaving between inner/outer rings near entries and
+                # exits) are NOT covered by Layer 1's same-lane-index
+                # restriction and are not handled by ConflictManager either
+                # (its straight-chord conflict points don't apply to curved
+                # circulating arcs — see vehicles/pool.py) — let this
+                # Euclidean proximity scan catch those cross-lane conflicts.
+                if id_a.startswith("conn") and id_b.startswith("conn"):
+                    idx_a = _conn_lane_index(id_a)
+                    idx_b = _conn_lane_index(id_b)
+                    if idx_a is not None and idx_a == idx_b:
+                        continue
             else:
                 if not id_a.startswith("conn") and not id_b.startswith("conn"):
                     if id_a[0] in ("n", "s", "e", "w") and id_a[:2] == id_b[:2]:

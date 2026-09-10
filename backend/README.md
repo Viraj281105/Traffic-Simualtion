@@ -22,9 +22,8 @@ backend/
 │   │   ├── fixed_time_signal.py  # Standard cyclic traffic signal phase generator
 │   │   ├── roundabout.py         # Yield-at-entry circular controller
 │   ├── database/                 # SQLite storage layer
-│   │   ├── db.py                 # SQLite engine & session generators
-│   │   ├── dao.py                # Database Access Object for runs & configs
-│   │   └── sweep_runner.py       # Parameter sweep scripting across volumes
+│   │   ├── db.py                 # SQLite engine & connection context manager
+│   │   └── dao.py                # Database Access Object for runs & configs
 │   ├── intersection/             # Spatial intersection support
 │   │   └── conflict_manager.py   # Conflict-zone reservations
 │   ├── roads/                    # Topological road definitions
@@ -96,15 +95,20 @@ The database is built on SQLite (`simulation.db`) using raw SQL scripts managed 
 - **`simulation_runs` Table**: Records metadata (seed, controller type, status, simulation time, duration).
 - **`run_metrics` Table**: Keeps historical logs of the 10 performance metrics.
 
-### Automated Sweeper Script
+### Automated Volume Sweep
 
-To perform a sensitivity analysis across arrival rates ($0.1, 0.3, 0.5, 0.7$ vehicles/sec):
+To perform a sensitivity analysis across arrival rates, call the study API
+(implemented in `src/study/volume_sweep.py`):
 
 ```bash
-python -m src.database.sweep_runner
+curl -X POST http://localhost:8000/api/v1/study/sweeps/run \
+  -H "Content-Type: application/json" \
+  -d '{"arrivalRates": [0.1, 0.3, 0.5, 0.7]}'
 ```
 
-This stores all resulting metrics back to SQLite for comparisons.
+This stores all resulting metrics back to SQLite (`sweep_sessions` and
+`simulation_runs`) for comparisons, and the session can be retrieved later
+via `GET /api/v1/study/sweeps/{sessionId}`.
 
 ---
 

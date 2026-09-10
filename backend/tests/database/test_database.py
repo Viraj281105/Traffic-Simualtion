@@ -39,8 +39,9 @@ def test_database_crud_operations() -> None:
         conn.close()
 
 
-def test_database_transaction_rollback() -> None:
-    """Verifies that failures during a transaction successfully trigger a rollback of all written changes."""
+def test_database_save_commits_immediately() -> None:
+    """Verifies DAO save() methods commit their own write (callers no longer
+    need to remember to call conn.commit() themselves — see dao.py)."""
     init_db()
     conn = sqlite3.connect(DB_PATH)
 
@@ -49,39 +50,53 @@ def test_database_transaction_rollback() -> None:
     conn.commit()
 
     try:
-        # Start transaction
-        conn.execute("BEGIN TRANSACTION;")
-
-        # Write valid simulation run
+        # No explicit conn.commit() after this — save() must commit itself.
         SimulationRunDAO.save(conn, "rollback_run_1", "running", 0.0)
-
-        # Trigger unique constraint violation by inserting the duplicate primary key manually
-        # (This will fail because 'rollback_run_1' was just inserted in the same transaction)
-        conn.execute(
-            "INSERT INTO simulation_runs (id, status, elapsed) VALUES ('rollback_run_1', 'failed', 0.0);"
-        )
-
-        conn.commit()
-    except sqlite3.IntegrityError:
-        # Successfully caught exception, rollback!
-        conn.rollback()
-
     finally:
         conn.close()
 
-    # Verify that the run 'rollback_run_1' was NOT committed to the database
+    # Verify the write is visible from a brand new connection, proving it
+    # was actually committed rather than left pending on the closed one.
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     try:
         run = SimulationRunDAO.get(conn, "rollback_run_1")
-        assert run is None
+        assert run is not None
+        assert run["status"] == "running"
+    finally:
+        conn.close()
+
+
+def test_database_save_rolls_back_on_failure() -> None:
+    """Verifies a failed DAO save() does not leave a partially-written row."""
+    init_db()
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+
+    conn.execute("DELETE FROM configurations WHERE id = 'bad_cfg';")
+    conn.commit()
+
+    try:
+        # A config value that cannot be JSON-serialized makes json.dumps()
+        # raise before the INSERT is attempted; save() must not leave a
+        # dangling transaction or a partial row behind.
+        class Unserializable:
+            pass
+
+        try:
+            ConfigurationDAO.save(conn, "bad_cfg", {"bad": Unserializable()})
+            raise AssertionError("expected save() to raise")
+        except TypeError:
+            pass
+
+        assert ConfigurationDAO.get(conn, "bad_cfg") is None
     finally:
         conn.close()
 
 
 def test_get_db_connection_and_missing_records() -> None:
     init_db()
-    for conn in get_db_connection():
+    with get_db_connection() as conn:
         # Missing config returns None
         missing_cfg = ConfigurationDAO.get(conn, "nonexistent_config_id_123")
         assert missing_cfg is None
@@ -89,17 +104,3 @@ def test_get_db_connection_and_missing_records() -> None:
         # Missing run returns None
         missing_run = SimulationRunDAO.get(conn, "nonexistent_run_id_123")
         assert missing_run is None
-
-
-def test_volume_sweep_runner(monkeypatch, tmp_path) -> None:
-    import runpy
-
-    import src.database.db as db_module
-    import src.database.sweep_runner as sweep_module
-
-    test_db = str(tmp_path / "test_sweep.db")
-    monkeypatch.setattr(db_module, "DB_PATH", test_db)
-    monkeypatch.setattr(sweep_module, "DB_PATH", test_db)
-
-    # Test main block via runpy
-    runpy.run_path(sweep_module.__file__, run_name="__main__")

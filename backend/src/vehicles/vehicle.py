@@ -24,6 +24,7 @@ class Vehicle:
         initial_speed: float = 0.0,
         turn_intent: Optional[TurnIntent] = None,
         spawn_time: float = 0.0,
+        wait_speed_threshold: float = 0.5,
     ) -> None:
         if not route:
             raise ValueError("Vehicle route cannot be empty")
@@ -52,8 +53,11 @@ class Vehicle:
         self.spawn_time: float = spawn_time
         self.exit_time: Optional[float] = None
 
-        # Wait threshold speed
-        self._wait_threshold: float = 0.01
+        # Wait threshold speed — vehicles below this speed are considered
+        # "waiting" for wait-time accounting. Matches the project-wide
+        # configurable waitSpeedThreshold used by MetricCollector and the
+        # queue_length/idle_loss metric definitions (default 0.5 m/s).
+        self._wait_threshold: float = wait_speed_threshold
 
         # Register vehicle to the first lane
         self.lane.add_vehicle(self)
@@ -97,7 +101,6 @@ class Vehicle:
         self.acceleration = acceleration
 
         # Calculate new speed (cannot be negative)
-        old_speed = self.speed
         self.speed = max(0.0, self.speed + acceleration * dt)
 
         # Update position — clamp displacement so we never overshoot more
@@ -105,15 +108,15 @@ class Vehicle:
         displacement = self.speed * dt
         self.position += displacement
 
-        # Manage state transitions and stop counting
+        # Manage state transitions. Stop counting is handled exclusively by
+        # update_vehicle_stops() in metrics/definitions/stop_count.py (which
+        # applies hysteresis via vehicle._hysteresis_stopped) — do not
+        # increment stop_count here as well, or stops get double-counted.
         is_stopped = self.speed < self._wait_threshold
-        was_stopped = old_speed < self._wait_threshold
 
         if is_stopped:
             self.state = VehicleState.WAITING
             self.wait_time += dt
-            if not was_stopped:
-                self.stop_count += 1
         else:
             self.state = VehicleState.APPROACHING
 

@@ -100,11 +100,32 @@ class VehiclePool:
                 idm_delta=veh_gen.get("idmDelta", 4.0),
             )
 
-        # Conflict manager is only active for unsignalized intersections
+        # ConflictManager pre-computes conflict/crossing points from straight
+        # chords between each connection lane's start/end coordinates (see
+        # ConflictManager.compute_conflict_points). That approximation holds
+        # for fixed-time-signal connection lanes (short straight or gently
+        # curved turn paths near the intersection box), so it is enabled
+        # there — it is what makes permissive lefts (e.g. an "ns_green"
+        # phase where NORTH/SOUTH share a green and left-turners cross
+        # opposing straight traffic) safe once phaseSequence-driven paired
+        # phases are used (see FixedTimeSignalController).
+        #
+        # For roundabouts, connection lanes are long curved circulating arcs
+        # (see RoadNetwork._get_or_create_connection_lane) that can span most
+        # of the circle; a straight chord between their endpoints cuts
+        # across the roundabout and would produce geometrically incorrect
+        # conflict points (spurious crossings with lanes that never actually
+        # meet, and missed real crossings). Rather than force an
+        # incompatible model onto curved geometry, multi-lane roundabout
+        # cross-conflicts (vehicles in different circulating lane indices,
+        # e.g. weaving between inner/outer rings near entries and exits) are
+        # instead caught by the emergency-proximity check in
+        # router.find_leader (Layer 4), which works on live Euclidean
+        # positions and needs no lane-geometry assumptions.
         geom_type = config.get("geometry", {}).get(
             "intersectionType", "fixed_time_signal"
         )
-        if geom_type in ("fixed_time_signal", "roundabout"):
+        if geom_type == "roundabout":
             conflict_manager = None
         else:
             conflict_manager = getattr(engine, "conflict_manager", None)

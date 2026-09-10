@@ -1,3 +1,4 @@
+import contextlib
 import os
 import sqlite3
 from typing import Generator
@@ -126,8 +127,15 @@ def init_db() -> None:
     conn.close()
 
 
+@contextlib.contextmanager
 def get_db_connection() -> Generator[sqlite3.Connection, None, None]:
-    """Yields a database connection context manager configured with WAL and foreign keys."""
+    """Context manager yielding a database connection with foreign keys and busy timeout set.
+
+    Use as ``with get_db_connection() as conn: ...`` — this is a real
+    context manager (not a bare generator relied on for its GC-triggered
+    cleanup), so the connection is deterministically closed via __exit__
+    regardless of how the with-block exits.
+    """
     db_dir = os.path.dirname(DB_PATH)
     if db_dir:
         os.makedirs(db_dir, exist_ok=True)
