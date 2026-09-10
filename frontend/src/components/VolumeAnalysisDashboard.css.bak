@@ -180,9 +180,8 @@
   width: 100%;
   box-sizing: border-box;
   transition: all 0.2s;
-}
 
-.inline-seed-wrap {
+  .inline-seed-wrap {
     display: flex;
     align-items: center;
     gap: 3px;
@@ -331,6 +330,18 @@
     gap: 16px;
     box-shadow: var(--shadow-md);
     animation: slideDown 0.22s ease-out;
+  }
+
+  @keyframes slideDown {
+    from {
+      opacity: 0;
+      transform: translateY(-8px);
+    }
+
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
   }
 
   .advanced-drawer-header {
@@ -836,9 +847,14 @@
       .tooltip-winner-badge.winner-tie {
         background: rgba(148, 163, 184, 0.2);
         color: var(--text-secondary);
-      }
 
-      .sweep-loading {
+        @keyframes spin {
+          to {
+            transform: rotate(360deg);
+          }
+        }
+
+        .sweep-loading {
           display: flex;
           align-items: center;
           gap: 8px;
@@ -2611,9 +2627,5 @@
         }
       }
     }
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
   }
 }
