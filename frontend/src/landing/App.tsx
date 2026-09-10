@@ -119,36 +119,13 @@ const metricGroups = [
   },
 ];
 
-function useReveal() {
-  useEffect(() => {
-    const items = document.querySelectorAll<HTMLElement>(".reveal");
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting) {
-            entry.target.classList.add("is-visible");
-            observer.unobserve(entry.target);
-          }
-        });
-      },
-      { threshold: 0.14 },
-    );
-    items.forEach((item) => {
-      observer.observe(item);
-    });
-    return () => {
-      observer.disconnect();
-    };
-  }, []);
-}
+import { Reveal } from "./components/Reveal";
 
 function App() {
   const [isLight, setIsLight] = useState(
     () => sessionStorage.getItem("signals-theme") === "light",
   );
   const [liveFlow, setLiveFlow] = useState(1247);
-  useReveal();
-
   useEffect(() => {
     document.title = "UrbanFlow — Signals vs. Roundabouts";
     document.documentElement.classList.toggle("light", isLight);
@@ -209,17 +186,21 @@ function App() {
             <div className="hero-kicker eyebrow">
               <span className="signal-dot" /> Intersection control / live model
             </div>
-            <h1 id="hero-title" className="display">
-              SIGNALS VS.
-              <br />
-              <em>ROUNDABOUTS.</em>
-              <br />
-              WHICH ONE WINS?
-            </h1>
-            <p className="hero-sub">
-              A data-driven traffic simulation framework for evaluating
-              intersection performance under real-world traffic conditions.
-            </p>
+            <Reveal>
+              <h1 id="hero-title" className="display">
+                SIGNALS VS.
+                <br />
+                <em>ROUNDABOUTS.</em>
+                <br />
+                WHICH ONE WINS?
+              </h1>
+            </Reveal>
+            <Reveal delay={0.2}>
+              <p className="hero-sub">
+                A data-driven traffic simulation framework for evaluating
+                intersection performance under real-world traffic conditions.
+              </p>
+            </Reveal>
             <div className="hero-actions">
               <a
                 className="primary-btn"
@@ -313,24 +294,26 @@ function App() {
       </section>
 
       <section
-        className="section-wrap section-space reveal"
+        className="section-wrap section-space"
         id="compare"
         aria-labelledby="compare-title"
       >
-        <div className="section-heading">
-          <div>
-            <div className="eyebrow">01 / The premise</div>
-            <h2 id="compare-title" className="display">
-              Two rules.
-              <br />
-              One junction.
-            </h2>
+        <Reveal>
+          <div className="section-heading">
+            <div>
+              <div className="eyebrow">01 / The premise</div>
+              <h2 id="compare-title" className="display">
+                Two rules.
+                <br />
+                One junction.
+              </h2>
+            </div>
+            <p>
+              Hold demand, geometry, and physics constant. Change only the rule
+              that decides who moves next.
+            </p>
           </div>
-          <p>
-            Hold demand, geometry, and physics constant. Change only the rule
-            that decides who moves next.
-          </p>
-        </div>
+        </Reveal>
         <div className="compare-grid">
           <article
             className="strategy-card signal"
@@ -391,226 +374,235 @@ function App() {
       </section>
 
       <section
-        className="capabilities section-space reveal"
+        className="capabilities section-space"
         aria-labelledby="capabilities-title"
       >
-        <div className="section-wrap">
-          <div className="section-heading">
-            <div>
-              <div className="eyebrow">02 / The engine</div>
-              <h2 id="capabilities-title" className="display">
-                A city that
-                <br />
-                <em>responds.</em>
-              </h2>
+        <Reveal width="100%">
+          <div className="section-wrap">
+            <div className="section-heading">
+              <div>
+                <div className="eyebrow">02 / The engine</div>
+                <h2 id="capabilities-title" className="display">
+                  A city that
+                  <br />
+                  <em>responds.</em>
+                </h2>
+              </div>
+              <p>
+                Not an animation. A calibrated system of vehicles, rules, and
+                observations running together.
+              </p>
             </div>
-            <p>
-              Not an animation. A calibrated system of vehicles, rules, and
-              observations running together.
-            </p>
+            <div className="capability-grid">
+              {capabilities.map(({ icon: Icon, title, body }, index) => (
+                <article
+                  className="capability"
+                  key={title}
+                  data-testid={`card-capability-${String(index)}`}
+                >
+                  <div className="capability-index mono">0{index + 1}</div>
+                  <div className="capability-icon">
+                    <Icon size={24} strokeWidth={1.5} />
+                  </div>
+                  <h3>{title}</h3>
+                  <p>{body}</p>
+                </article>
+              ))}
+            </div>
           </div>
-          <div className="capability-grid">
-            {capabilities.map(({ icon: Icon, title, body }, index) => (
-              <article
-                className="capability"
-                key={title}
-                data-testid={`card-capability-${String(index)}`}
-              >
-                <div className="capability-index mono">0{index + 1}</div>
-                <div className="capability-icon">
-                  <Icon size={24} strokeWidth={1.5} />
-                </div>
-                <h3>{title}</h3>
-                <p>{body}</p>
-              </article>
-            ))}
-          </div>
-        </div>
+        </Reveal>
       </section>
 
       <section
-        className="section-wrap section-space metrics-section reveal"
+        className="section-wrap section-space metrics-section"
         id="metrics"
         aria-labelledby="metrics-title"
       >
-        <div className="metrics-layout">
-          <div className="metrics-intro">
-            <div className="eyebrow">03 / The evidence</div>
-            <h2 id="metrics-title" className="display">
-              Ten ways
-              <br />
-              to measure
-              <br />
-              <em>better.</em>
-            </h2>
-            <p>
-              Performance is more than speed. We score what the driver feels,
-              what the network absorbs, and what the street can safely hold.
-            </p>
-            <div className="hero-actions" style={{ marginTop: 30 }}>
-              <a
-                className="ghost-btn"
-                href="#winner"
-                data-testid="link-see-result"
-              >
-                See the result <ArrowDownRight size={14} />
-              </a>
+        <Reveal width="100%">
+          <div className="metrics-layout">
+            <div className="metrics-intro">
+              <div className="eyebrow">03 / The evidence</div>
+              <h2 id="metrics-title" className="display">
+                Ten ways
+                <br />
+                to measure
+                <br />
+                <em>better.</em>
+              </h2>
+              <p>
+                Performance is more than speed. We score what the driver feels,
+                what the network absorbs, and what the street can safely hold.
+              </p>
+              <div className="hero-actions" style={{ marginTop: 30 }}>
+                <a
+                  className="ghost-btn"
+                  href="#winner"
+                  data-testid="link-see-result"
+                >
+                  See the result <ArrowDownRight size={14} />
+                </a>
+              </div>
+            </div>
+            <div className="metric-list">
+              {metricGroups.map((group) => (
+                <div className="metric-group" key={group.title}>
+                  <div className="metric-group-title">{group.title}</div>
+                  {group.metrics.map((metric) => (
+                    <div
+                      className="metric-row"
+                      key={metric.name}
+                      data-testid={`metric-row-${metric.name.toLowerCase().replace(/ /g, "-")}`}
+                    >
+                      <span className="metric-name">{metric.name}</span>
+                      <span className="metric-value">{metric.value}</span>
+                      <span className="metric-bar" aria-hidden="true">
+                        <i
+                          className={metric.tone === "orange" ? "orange" : ""}
+                          style={{ "--value": metric.width } as CSSProperties}
+                        />
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ))}
             </div>
           </div>
-          <div className="metric-list">
-            {metricGroups.map((group) => (
-              <div className="metric-group" key={group.title}>
-                <div className="metric-group-title">{group.title}</div>
-                {group.metrics.map((metric) => (
-                  <div
-                    className="metric-row"
-                    key={metric.name}
-                    data-testid={`metric-row-${metric.name.toLowerCase().replace(/ /g, "-")}`}
-                  >
-                    <span className="metric-name">{metric.name}</span>
-                    <span className="metric-value">{metric.value}</span>
-                    <span className="metric-bar" aria-hidden="true">
-                      <i
-                        className={metric.tone === "orange" ? "orange" : ""}
-                        style={{ "--value": metric.width } as CSSProperties}
-                      />
-                    </span>
-                  </div>
-                ))}
-              </div>
-            ))}
-          </div>
-        </div>
+        </Reveal>
       </section>
 
       <section
-        className="section-wrap section-space reveal"
+        className="section-wrap section-space"
         id="winner"
         aria-labelledby="winner-title"
       >
-        <div className="score-card">
-          <div>
-            <div className="eyebrow">04 / Master Efficiency Score</div>
-            <h2 id="winner-title" className="display">
-              The roundabout
-              <br />
-              <em>takes the lead.</em>
-            </h2>
-            <p>
-              A weighted composite across throughput, delay, fuel, stability,
-              and fairness. The score keeps the trade-offs visible — then makes
-              the decision legible.
-            </p>
-            <div className="score-vs">
-              <span>
-                SIGNAL CONTROL <b>64.8</b>
-              </span>
-              <ArrowRight size={13} />
-              <span>
-                ROUNDABOUT <b>78.6</b>
-              </span>
+        <Reveal width="100%">
+          <div className="score-card">
+            <div>
+              <div className="eyebrow">04 / Master Efficiency Score</div>
+              <h2 id="winner-title" className="display">
+                The roundabout
+                <br />
+                <em>takes the lead.</em>
+              </h2>
+              <p>
+                A weighted composite across throughput, delay, fuel, stability,
+                and fairness. The score keeps the trade-offs visible — then
+                makes the decision legible.
+              </p>
+              <div className="score-vs">
+                <span>
+                  SIGNAL CONTROL <b>64.8</b>
+                </span>
+                <ArrowRight size={13} />
+                <span>
+                  ROUNDABOUT <b>78.6</b>
+                </span>
+              </div>
+            </div>
+            <div>
+              <div className="score-number" data-testid="text-winning-score">
+                78.6
+              </div>
+              <div className="score-caption mono">
+                MASTER EFFICIENCY SCORE / 100
+              </div>
             </div>
           </div>
-          <div>
-            <div className="score-number" data-testid="text-winning-score">
-              78.6
-            </div>
-            <div className="score-caption mono">
-              MASTER EFFICIENCY SCORE / 100
-            </div>
-          </div>
-        </div>
+        </Reveal>
       </section>
 
       <section
-        className="section-wrap section-space reveal"
+        className="section-wrap section-space"
         id="method"
         aria-labelledby="method-title"
       >
-        <div className="methodology">
-          <div className="methodology-copy">
-            <div className="eyebrow">05 / Under the hood</div>
-            <h2 id="method-title" className="display">
-              Make the
-              <br />
-              <em>invisible</em>
-              <br />
-              count.
-            </h2>
-            <p>
-              Signals vs. Roundabouts turns a familiar planning argument into a
-              repeatable experiment. Identical arrival profiles enter the same
-              geometry; an Intelligent Driver Model gives each agent a
-              human-scale response; the controller is the only variable.
-            </p>
-            <p>
-              Then the twin records every stop, gap, and second — so a design
-              decision has a trail back to the street.
-            </p>
+        <Reveal width="100%">
+          <div className="methodology">
+            <div className="methodology-copy">
+              <div className="eyebrow">05 / Under the hood</div>
+              <h2 id="method-title" className="display">
+                Make the
+                <br />
+                <em>invisible</em>
+                <br />
+                count.
+              </h2>
+              <p>
+                Signals vs. Roundabouts turns a familiar planning argument into
+                a repeatable experiment. Identical arrival profiles enter the
+                same geometry; an Intelligent Driver Model gives each agent a
+                human-scale response; the controller is the only variable.
+              </p>
+              <p>
+                Then the twin records every stop, gap, and second — so a design
+                decision has a trail back to the street.
+              </p>
+            </div>
+            <div className="tech-stack" aria-label="Technology context">
+              <div className="tech-item">
+                <strong>
+                  <Code2 size={18} />
+                </strong>
+                <span>
+                  Python simulation core
+                  <br />
+                  reproducible scenarios
+                </span>
+              </div>
+              <div className="tech-item">
+                <strong>
+                  <Activity size={18} />
+                </strong>
+                <span>
+                  IDM vehicle dynamics
+                  <br />
+                  calibrated acceleration
+                </span>
+              </div>
+              <div className="tech-item">
+                <strong>
+                  <Orbit size={18} />
+                </strong>
+                <span>
+                  Agent-based flow
+                  <br />
+                  lane-level interaction
+                </span>
+              </div>
+              <div className="tech-item">
+                <strong>
+                  <BarChart3 size={18} />
+                </strong>
+                <span>
+                  Metric pipeline
+                  <br />
+                  decision-ready output
+                </span>
+              </div>
+            </div>
           </div>
-          <div className="tech-stack" aria-label="Technology context">
-            <div className="tech-item">
-              <strong>
-                <Code2 size={18} />
-              </strong>
-              <span>
-                Python simulation core
-                <br />
-                reproducible scenarios
-              </span>
-            </div>
-            <div className="tech-item">
-              <strong>
-                <Activity size={18} />
-              </strong>
-              <span>
-                IDM vehicle dynamics
-                <br />
-                calibrated acceleration
-              </span>
-            </div>
-            <div className="tech-item">
-              <strong>
-                <Orbit size={18} />
-              </strong>
-              <span>
-                Agent-based flow
-                <br />
-                lane-level interaction
-              </span>
-            </div>
-            <div className="tech-item">
-              <strong>
-                <BarChart3 size={18} />
-              </strong>
-              <span>
-                Metric pipeline
-                <br />
-                decision-ready output
-              </span>
-            </div>
-          </div>
-        </div>
+        </Reveal>
       </section>
 
-      <section
-        className="section-wrap final-cta reveal"
-        aria-labelledby="final-title"
-      >
-        <div className="eyebrow">06 / Your next junction</div>
-        <h2 id="final-title" className="display">
-          Stop arguing.
-          <br />
-          <em>Start observing.</em>
-        </h2>
-        <p>Put the intersection in motion. Let the evidence choose the rule.</p>
-        <a
-          className="primary-btn"
-          href="/app.html"
-          data-testid="link-run-another-scenario"
-        >
-          Launch simulation <ArrowRight size={15} />
-        </a>
+      <section className="section-wrap final-cta" aria-labelledby="final-title">
+        <Reveal width="100%">
+          <div className="eyebrow">06 / Your next junction</div>
+          <h2 id="final-title" className="display">
+            Stop arguing.
+            <br />
+            <em>Start observing.</em>
+          </h2>
+          <p>
+            Put the intersection in motion. Let the evidence choose the rule.
+          </p>
+          <a
+            className="primary-btn"
+            href="/app.html"
+            data-testid="link-run-another-scenario"
+          >
+            Launch simulation <ArrowRight size={15} />
+          </a>
+        </Reveal>
       </section>
 
       <footer className="footer">

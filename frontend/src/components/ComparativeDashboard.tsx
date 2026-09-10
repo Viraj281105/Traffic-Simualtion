@@ -9,6 +9,7 @@ import "./ComparativeDashboard.css";
 interface ComparativeDashboardProps {
   snapshot: DualSnapshot | null;
   connectionStatus: ConnectionStatus;
+  onClose?: () => void;
 }
 
 function fmt(val: number | undefined, decimals = 1): string {
@@ -18,13 +19,21 @@ function fmt(val: number | undefined, decimals = 1): string {
 
 export const ComparativeDashboard: React.FC<ComparativeDashboardProps> = ({
   snapshot,
+  onClose,
 }) => {
   const [weights, setWeights] = useState<ScoringWeights>(DEFAULT_WEIGHTS);
 
   if (!snapshot) {
     return (
-      <div className="comparative-dashboard empty">
-        <p>Waiting for simulation data...</p>
+      <div className="analytics-modal-overlay" onClick={onClose}>
+        <div
+          className="analytics-modal-content comparative-dashboard empty"
+          onClick={(e) => {
+            e.stopPropagation();
+          }}
+        >
+          <p>Waiting for simulation data...</p>
+        </div>
       </div>
     );
   }
@@ -115,110 +124,145 @@ export const ComparativeDashboard: React.FC<ComparativeDashboardProps> = ({
   };
 
   return (
-    <div className="comparative-dashboard">
-      <WeightedScoringPanel
-        metricsSignal={mSignal}
-        metricsRoundabout={mRound}
-        weights={weights}
-        onWeightsChange={setWeights}
-      />
+    <div className="analytics-modal-overlay" onClick={onClose}>
       <div
-        className="dashboard-header"
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: "16px",
+        className="analytics-modal-content comparative-dashboard"
+        onClick={(e) => {
+          e.stopPropagation();
         }}
       >
-        <div className="dashboard-insights">
-          <h3
-            style={{
-              margin: 0,
-              fontSize: "14px",
-              color: "var(--text-primary)",
-            }}
+        <div className="modal-header">
+          <h2 className="modal-title">📊 Comparison Analytics</h2>
+          <button
+            className="modal-close-btn"
+            onClick={onClose}
+            aria-label="Close Analytics"
           >
-            Performance Insights
-          </h3>
-          <p
-            style={{
-              margin: "4px 0 0 0",
-              fontSize: "12px",
-              color: "var(--text-secondary)",
-            }}
-          >
-            Observe how the Roundabout typically reduces Average Wait Time and
-            Queues during low-to-medium traffic, while the Fixed-Time Signal may
-            offer better fairness or throughput under heavy, directional loads.
-          </p>
+            <svg
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
         </div>
-        <button
-          className="pb-btn pb-primary"
-          onClick={handleDownloadReport}
-          style={{
-            padding: "8px 12px",
-            fontSize: "12px",
-            borderRadius: "4px",
-            whiteSpace: "nowrap",
-          }}
+        <div
+          className="modal-body"
+          style={{ display: "flex", flexDirection: "column", gap: "16px" }}
         >
-          📥 Export CSV
-        </button>
-      </div>
+          <WeightedScoringPanel
+            metricsSignal={mSignal}
+            metricsRoundabout={mRound}
+            weights={weights}
+            onWeightsChange={setWeights}
+          />
+          <div
+            className="dashboard-header"
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              marginBottom: "16px",
+            }}
+          >
+            <div className="dashboard-insights">
+              <h3
+                style={{
+                  margin: 0,
+                  fontSize: "14px",
+                  color: "var(--text-primary)",
+                }}
+              >
+                Performance Insights
+              </h3>
+              <p
+                style={{
+                  margin: "4px 0 0 0",
+                  fontSize: "12px",
+                  color: "var(--text-secondary)",
+                }}
+              >
+                Observe how the Roundabout typically reduces Average Wait Time
+                and Queues during low-to-medium traffic, while the Fixed-Time
+                Signal may offer better fairness or throughput under heavy,
+                directional loads.
+              </p>
+            </div>
+            <button
+              className="pb-btn pb-primary"
+              onClick={handleDownloadReport}
+              style={{
+                padding: "8px 12px",
+                fontSize: "12px",
+                borderRadius: "4px",
+                whiteSpace: "nowrap",
+              }}
+            >
+              📥 Export CSV
+            </button>
+          </div>
 
-      <table className="comparison-table">
-        <thead>
-          <tr>
-            <th>Performance Metric</th>
-            <th>🚦 Signal</th>
-            <th>🔄 Roundabout</th>
-            <th>Improvement %</th>
-          </tr>
-        </thead>
-        <tbody>
-          <ComparisonRow
-            label="Avg Wait Time (s)"
-            valA={mSignal.averageWaitTime}
-            valB={mRound.averageWaitTime}
-            lowerIsBetter={true}
-            formatter={(v) => fmt(v)}
-            insight="Roundabouts minimize wait times in light-to-moderate traffic."
-          />
-          <ComparisonRow
-            label="Throughput (veh)"
-            valA={mSignal.throughput}
-            valB={mRound.throughput}
-            lowerIsBetter={false}
-            formatter={(v) => fmt(v, 0)}
-            insight="Total vehicles successfully processed."
-          />
-          <ComparisonRow
-            label="Avg Speed (m/s)"
-            valA={mSignal.averageTravelSpeed}
-            valB={mRound.averageTravelSpeed}
-            lowerIsBetter={false}
-            formatter={(v) => fmt(v)}
-            insight="Higher average speed indicates better flow."
-          />
-          <ComparisonRow
-            label="Average Queue"
-            valA={mSignal.averageQueueLength}
-            valB={mRound.averageQueueLength}
-            lowerIsBetter={true}
-            formatter={(v) => fmt(v)}
-            insight="Signals usually have longer queues due to red phases."
-          />
-          <ComparisonRow
-            label="Max Queue"
-            valA={mSignal.maxQueueLength}
-            valB={mRound.maxQueueLength}
-            lowerIsBetter={true}
-            formatter={(v) => fmt(v, 0)}
-            insight="Peak congestion impact on approaches."
-          />
-        </tbody>
-      </table>
+          <table className="comparison-table">
+            <thead>
+              <tr>
+                <th>Performance Metric</th>
+                <th>🚦 Signal</th>
+                <th>🔄 Roundabout</th>
+                <th>Improvement %</th>
+              </tr>
+            </thead>
+            <tbody>
+              <ComparisonRow
+                label="Avg Wait Time (s)"
+                valA={mSignal.averageWaitTime}
+                valB={mRound.averageWaitTime}
+                lowerIsBetter={true}
+                formatter={(v) => fmt(v)}
+                insight="Roundabouts minimize wait times in light-to-moderate traffic."
+              />
+              <ComparisonRow
+                label="Throughput (veh)"
+                valA={mSignal.throughput}
+                valB={mRound.throughput}
+                lowerIsBetter={false}
+                formatter={(v) => fmt(v, 0)}
+                insight="Total vehicles successfully processed."
+              />
+              <ComparisonRow
+                label="Avg Speed (m/s)"
+                valA={mSignal.averageTravelSpeed}
+                valB={mRound.averageTravelSpeed}
+                lowerIsBetter={false}
+                formatter={(v) => fmt(v)}
+                insight="Higher average speed indicates better flow."
+              />
+              <ComparisonRow
+                label="Average Queue"
+                valA={mSignal.averageQueueLength}
+                valB={mRound.averageQueueLength}
+                lowerIsBetter={true}
+                formatter={(v) => fmt(v)}
+                insight="Signals usually have longer queues due to red phases."
+              />
+              <ComparisonRow
+                label="Max Queue"
+                valA={mSignal.maxQueueLength}
+                valB={mRound.maxQueueLength}
+                lowerIsBetter={true}
+                formatter={(v) => fmt(v, 0)}
+                insight="Peak congestion impact on approaches."
+              />
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 };
