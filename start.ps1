@@ -25,7 +25,8 @@ function Test-BackendHealthy() {
     try {
         $response = Invoke-RestMethod -Uri "http://localhost:8000/health" -TimeoutSec 2 -ErrorAction SilentlyContinue
         return ($response.status -eq "healthy")
-    } catch {
+    }
+    catch {
         return $false
     }
 }
@@ -35,11 +36,12 @@ Write-Host "  Traffic Simulation - Application Startup"
 Write-Host "========================================================"
 
 # Check if Backend/DB is already running and responsive
-$backendReady = Test-BackendHealthy()
+$backendReady = Test-BackendHealthy
 
 if ($backendReady) {
     Write-Host "[OK] Backend & Database storage already active on port 8000"
-} else {
+}
+else {
     # Check if Docker is available
     $dockerAvailable = $false
     try {
@@ -47,7 +49,8 @@ if ($backendReady) {
         if ($LASTEXITCODE -eq 0) {
             $dockerAvailable = $true
         }
-    } catch {}
+    }
+    catch {}
 
     if ($dockerAvailable) {
         Write-Host "Starting Docker database & backend services (docker compose up -d)..."
@@ -65,10 +68,12 @@ if ($backendReady) {
         }
         if ($backendReady) {
             Write-Host "[OK] Docker Backend & Database service initialized successfully."
-        } else {
+        }
+        else {
             Write-Host "[WARN] Docker backend did not respond in time; falling back to local runner."
         }
-    } else {
+    }
+    else {
         Write-Host "[INFO] Docker daemon not active or not installed; running backend locally."
     }
 
@@ -76,7 +81,8 @@ if ($backendReady) {
     if (-not $backendReady) {
         if (Test-PortInUse 8000) {
             Write-Host "Port 8000 in use; assuming backend is running."
-        } else {
+        }
+        else {
             Write-Host "Starting native backend with authoritative local SQLite database..."
             Start-Process powershell.exe -WorkingDirectory $backend -ArgumentList @(
                 "-NoExit",
@@ -102,7 +108,8 @@ if ($Docker) {
 # Start local frontend development server if not already running
 if (Test-PortInUse 5173) {
     Write-Host "[OK] Frontend dev server already running on port 5173"
-} else {
+}
+else {
     Write-Host "Starting frontend dev server..."
     Start-Process powershell.exe -WorkingDirectory $frontend -ArgumentList @(
         "-NoExit",
