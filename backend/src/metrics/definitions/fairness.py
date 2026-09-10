@@ -15,12 +15,17 @@ def calculate_directional_fairness(exited_vehicles: List[Vehicle]) -> float:
     from typing import Dict
 
     waits: Dict[str, List[float]] = {"north": [], "south": [], "east": [], "west": []}
+    # Lane IDs use single-letter direction prefixes (e.g. "n_in_0"); map them to
+    # the full direction names used as keys above (same convention as
+    # queue_length.py / idle_loss.py).
+    mapping = {"n": "north", "s": "south", "e": "east", "w": "west"}
 
     for v in exited_vehicles:
         # Get start direction from route
         if v.route:
             lane_id = v.route[0].lane_id.lower()
-            direction = lane_id.split("_")[0]
+            dir_char = lane_id.split("_")[0]
+            direction = mapping.get(dir_char)
             if direction in waits:
                 waits[direction].append(v.wait_time)
 

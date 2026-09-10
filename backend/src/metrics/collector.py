@@ -4,6 +4,7 @@ from typing import Any, Dict, List
 from src.core.enums import Direction
 from src.metrics.definitions.derived_metrics import (
     calculate_average_travel_speed,
+    calculate_critical_saturation_volume,
     calculate_queue_stability_index,
     calculate_space_footprint_consumed,
 )
@@ -116,11 +117,26 @@ class MetricCollector:
             active_vehicles, self.wait_speed_threshold
         )
 
-        # Compute max, time-averaged, active average queue length, and queue std dev
+        # Compute max/time-averaged queue length per the metric contract
+        # (docs/architecture/07-metric-contract.md §2.3): per-direction
+        # time-average/maximum first, then averageQueueLength = mean of the
+        # 4 per-direction averages and maxQueueLength = max over all
+        # directions and ticks. (activeAverageQueueLength/queueStdDev remain
+        # based on the intersection-wide total queue per tick — they are
+        # undocumented, separate derived stats and are left unchanged.)
+        directions = ["north", "south", "east", "west"]
         if self.queue_history:
+            per_direction_avg = {}
+            per_direction_max = {}
+            for d in directions:
+                series = [q.get(d, 0) for q in self.queue_history]
+                per_direction_avg[d] = sum(series) / len(series)
+                per_direction_max[d] = max(series)
+
+            avg_q = round(sum(per_direction_avg.values()) / len(directions), 2)
+            max_q = max(per_direction_max.values())
+
             all_queues_sums = [sum(q.values()) for q in self.queue_history]
-            max_q = max(all_queues_sums)
-            avg_q = round(sum(all_queues_sums) / len(self.queue_history), 2)
             non_zero_queues = [q for q in all_queues_sums if q > 0]
             active_avg_q = (
                 round(sum(non_zero_queues) / len(non_zero_queues), 2)
@@ -128,7 +144,8 @@ class MetricCollector:
                 else 0.0
             )
             if len(all_queues_sums) > 1:
-                var_q = sum((x - avg_q) ** 2 for x in all_queues_sums) / (
+                total_q_mean = sum(all_queues_sums) / len(all_queues_sums)
+                var_q = sum((x - total_q_mean) ** 2 for x in all_queues_sums) / (
                     len(all_queues_sums) - 1
                 )
                 sd_q = round(math.sqrt(var_q), 2)
@@ -215,6 +232,11 @@ class MetricCollector:
             if v.lane:
                 lane_lengths[v.lane.lane_id] = v.lane.length
 
+        throughput_val = calculate_throughput(post_warmup_exited)
+        throughput_rate_val = calculate_throughput_rate(
+            post_warmup_exited, current_time, warmup_time=self.warmup_time
+        )
+
         base_metrics = {
             "averageWaitTime": calculate_average_wait_time(post_warmup_exited),
             "averageDelay": avg_delay,
@@ -223,10 +245,8 @@ class MetricCollector:
             "maxDelay": max_delay,
             "p95Delay": p95_delay,
             "delayStdDev": sd_delay,
-            "throughput": calculate_throughput(post_warmup_exited),
-            "throughputRate": calculate_throughput_rate(
-                post_warmup_exited, current_time, warmup_time=self.warmup_time
-            ),
+            "throughput": throughput_val,
+            "throughputRate": throughput_rate_val,
             "currentQueueLengths": curr_queues,
             "maxQueueLength": max_q,
             "averageQueueLength": avg_q,
@@ -254,7 +274,9 @@ class MetricCollector:
                 else 0.0,
                 1,
             ),
-            "criticalSaturationVolume": 1800.0,
+            "criticalSaturationVolume": calculate_critical_saturation_volume(
+                self.config, throughput_val, throughput_rate_val, total_spawned
+            ),
         }
         base_metrics["masterEfficiencyScore"] = calculate_master_efficiency_score(
             base_metrics

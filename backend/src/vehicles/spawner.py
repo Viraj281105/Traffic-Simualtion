@@ -79,6 +79,11 @@ class VehicleSpawner:
         # Safety distance
         self.minimum_gap: float = veh_gen_cfg.get("minimumGap", 2.0)
 
+        # Speed below which a vehicle is considered "waiting" — must match
+        # MetricCollector's wait_speed_threshold so wait-time accounting is
+        # consistent between the vehicle and the metrics layer.
+        self.wait_speed_threshold: float = veh_gen_cfg.get("waitSpeedThreshold", 0.5)
+
         # Vehicles spawned count
         self.spawned_count: int = 0
 
@@ -273,6 +278,7 @@ class VehicleSpawner:
             initial_speed=v_desired_speed,  # starts moving at free-flow speed
             turn_intent=turn,
             spawn_time=self._elapsed_time,
+            wait_speed_threshold=self.wait_speed_threshold,
         )
 
         return vehicle
