@@ -56,7 +56,7 @@ def test_simulation_history() -> None:
     }
     # 1. Create simulation
     response = client.post("/api/v1/simulations", json=config)
-    assert response.status_code == 200
+    assert response.status_code == 201
     sim_id = response.json()["simulationId"]
 
     # 2. Control start

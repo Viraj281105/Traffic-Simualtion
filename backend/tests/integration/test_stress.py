@@ -32,7 +32,7 @@ def test_stress_massive_density() -> None:
 
     # Verify creation under stress parameters succeeds
     res_create = client.post("/api/v1/simulations", json=config)
-    assert res_create.status_code == 200
+    assert res_create.status_code == 201
     sim_id = res_create.json()["simulationId"]
 
     # Start run
