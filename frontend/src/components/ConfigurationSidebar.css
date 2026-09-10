@@ -104,7 +104,7 @@
   gap: 20px;
 }
 
-/* -- Scenario Presets Bar ------------------------------------------ */
+/* ── Scenario Presets Bar ────────────────────────────────────────── */
 .config-presets-container {
   display: flex;
   flex-direction: column;
@@ -351,7 +351,7 @@
   color: #ffffff;
 }
 
-/* -- LIGHT MODE OVERRIDES -------------------------------------------------- */
+/* ── LIGHT MODE OVERRIDES ────────────────────────────────────────────────── */
 .light .config-sidebar-panel {
   background: var(--bg-secondary);
   border-left: 1px solid var(--border-color);
