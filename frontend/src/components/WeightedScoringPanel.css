@@ -213,7 +213,7 @@
   transition: width 0.3s ease;
 }
 
-/* ── LIGHT MODE OVERRIDES ────────────────────────────────────────────────── */
+/* -- LIGHT MODE OVERRIDES -------------------------------------------------- */
 .light .weighted-scoring-card {
   background: var(--bg-card);
   border-color: var(--border-color);
