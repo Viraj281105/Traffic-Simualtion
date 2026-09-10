@@ -1,5 +1,5 @@
 # ── Build stage ──────────────────────────────────────────────────────────────
-FROM python:3.11.16-slim-bookworm AS builder
+FROM python:3.14.7-slim-bookworm AS builder
 
 WORKDIR /app
 
@@ -8,7 +8,7 @@ COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # ── Runtime stage ────────────────────────────────────────────────────────────
-FROM python:3.11.16-slim-bookworm
+FROM python:3.14.7-slim-bookworm
 
 WORKDIR /app
 
