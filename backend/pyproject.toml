@@ -23,7 +23,12 @@ mypy_path = "."
 
 [tool.pytest.ini_options]
 minversion = "6.0"
-addopts = "-ra -q --cov=src --cov-report=term-missing --cov-fail-under=0"
+# Coverage floor is set below current measured project coverage (~94% at
+# the time this was set) to leave headroom for normal fluctuation while
+# still catching a real regression (e.g. a large new module shipped with
+# no tests). Ratchet this up over time as coverage improves; never drop it
+# back to 0 — that makes the gate a no-op (see audit history).
+addopts = "-ra -q --cov=src --cov-report=term-missing --cov-fail-under=85"
 testpaths = [
     "tests",
 ]

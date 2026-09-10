@@ -81,6 +81,9 @@ jobs:
       - name: Run Prettier Format Checker
         run: npm run format
 
+      - name: Run Frontend Tests
+        run: npm run test
+
   build-and-test:
     name: build-and-test
     needs: [validate-schemas, backend-lint-test, frontend-lint-test]

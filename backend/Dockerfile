@@ -1,5 +1,5 @@
 # ── Build stage ──────────────────────────────────────────────────────────────
-FROM python:3.11-slim AS builder
+FROM python:3.11.16-slim-bookworm AS builder
 
 WORKDIR /app
 
@@ -8,7 +8,7 @@ COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # ── Runtime stage ────────────────────────────────────────────────────────────
-FROM python:3.11-slim
+FROM python:3.11.16-slim-bookworm
 
 WORKDIR /app
 
@@ -22,7 +22,19 @@ ENV PYTHONPATH=/app
 # Copy source code and schemas
 COPY backend/src/ ./src/
 COPY shared/ ./shared/
-RUN mkdir -p /app/data
+COPY backend/docker-entrypoint.py /docker-entrypoint.py
+
+# Create the non-root user the app actually runs as. /app is owned by it so
+# a *fresh* named volume mounted at /app/data (docker-compose.yml) is
+# correctly seeded with that ownership by Docker on first creation. The
+# container still starts as root (no USER switch here) because a volume
+# reused from an older, root-based build of this image keeps its existing
+# root ownership across restarts — docker-entrypoint.py fixes that, then
+# permanently drops to appuser before the real process ever runs, so the
+# application itself is still never root either way.
+RUN useradd --system --create-home --home-dir /home/appuser --shell /usr/sbin/nologin appuser \
+    && mkdir -p /app/data \
+    && chown -R appuser:appuser /app
 
 EXPOSE 8000
 
@@ -30,4 +42,5 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
 
+ENTRYPOINT ["python", "/docker-entrypoint.py"]
 CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]

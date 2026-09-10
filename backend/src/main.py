@@ -1,16 +1,27 @@
 import asyncio
+import contextvars
 import csv
 import io
 import json
 import logging
+import os
 import random
+import secrets
 import time
 import uuid
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 import jsonschema
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import (
+    Depends,
+    FastAPI,
+    Header,
+    HTTPException,
+    Request,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -39,14 +50,55 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Traffic Simulation Framework API", version="1.0.0")
 
-# Configure CORS
+# ── CORS ──────────────────────────────────────────────────────────────────
+# Origins are environment-driven (CORS_ORIGINS, comma-separated), never
+# hardcoded to a specific machine/domain. The local-dev default covers the
+# Vite dev server's default port. A bare "*" is never combined with
+# allow_credentials=True (browsers reject that combination anyway, and it
+# amounts to an unrestricted, credentialed CORS policy) — CORS_ORIGINS="*"
+# instead explicitly disables credentials for that case.
+_DEFAULT_DEV_ORIGINS = "http://localhost:5173,http://127.0.0.1:5173"
+_cors_origins_raw = os.environ.get("CORS_ORIGINS", _DEFAULT_DEV_ORIGINS).strip()
+if _cors_origins_raw == "*":
+    CORS_ORIGINS = ["*"]
+    CORS_ALLOW_CREDENTIALS = False
+else:
+    CORS_ORIGINS = [o.strip() for o in _cors_origins_raw.split(",") if o.strip()]
+    CORS_ALLOW_CREDENTIALS = True
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins for dev/testing ease
-    allow_credentials=True,
+    allow_origins=CORS_ORIGINS,
+    allow_credentials=CORS_ALLOW_CREDENTIALS,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ── Minimal API-key protection for mutating / compute-heavy endpoints ──────
+# Disabled (no-op) when API_KEY is unset/empty — the intended local-dev
+# default, so nothing needs to change to keep developing without auth. Set
+# the API_KEY environment variable to require
+# `Authorization: Bearer <API_KEY>` on protected routes (see usage below).
+API_KEY = os.environ.get("API_KEY", "").strip()
+
+
+def require_api_key(authorization: Optional[str] = Header(default=None)) -> None:
+    if not API_KEY:
+        return
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(
+            status_code=401,
+            detail="Missing or invalid API key",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    provided = authorization[len("Bearer ") :]
+    if not secrets.compare_digest(provided, API_KEY):
+        raise HTTPException(
+            status_code=401,
+            detail="Missing or invalid API key",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
 
 # Initialize Database
 try:
@@ -69,9 +121,28 @@ def health_check() -> Dict[str, str]:
 # create_simulation() and validate_config()), so a missing or unreadable
 # schema must fail application startup loudly rather than silently falling
 # back to an empty schema that would make validation a no-op.
-CONFIG_SCHEMA_PATH = (
-    Path(__file__).resolve().parents[2] / "shared" / "schemas" / "config.schema.json"
+# Two known-valid package layouts share this codebase: running from the
+# repo checkout (backend/src/main.py, shared/ three levels up) and running
+# from the built Docker image (/app/src/main.py, shared/ copied directly
+# under /app — see backend/Dockerfile's `COPY shared/ ./shared/`, one
+# level up). Try both — still package-relative, never a machine-specific
+# absolute path — and fail loudly only if neither resolves.
+_SCHEMA_PATH_CANDIDATES = [
+    Path(__file__).resolve().parents[2] / "shared" / "schemas" / "config.schema.json",
+    Path(__file__).resolve().parents[1] / "shared" / "schemas" / "config.schema.json",
+]
+
+CONFIG_SCHEMA_PATH: Optional[Path] = next(
+    (p for p in _SCHEMA_PATH_CANDIDATES if p.is_file()), None
 )
+
+if CONFIG_SCHEMA_PATH is None:
+    raise RuntimeError(
+        "Failed to load required config schema: none of "
+        f"{[str(p) for p in _SCHEMA_PATH_CANDIDATES]} exist. The application "
+        "cannot start without it, since configuration validation would "
+        "otherwise silently become a no-op."
+    )
 
 try:
     with open(CONFIG_SCHEMA_PATH, "r", encoding="utf-8") as f:
@@ -140,13 +211,13 @@ def get_simulation_status() -> Dict[str, Any]:
     }
 
 
-@app.post("/api/simulation/start")
+@app.post("/api/simulation/start", dependencies=[Depends(require_api_key)])
 def start_simulation() -> Dict[str, Any]:
     single_veh.status = "running"
     return {"status": "running", "message": "Simulation started"}
 
 
-@app.post("/api/simulation/stop")
+@app.post("/api/simulation/stop", dependencies=[Depends(require_api_key)])
 def stop_simulation() -> Dict[str, Any]:
     single_veh.status = "stopped"
     sim = get_or_create_live_simulation()
@@ -159,7 +230,7 @@ def stop_simulation() -> Dict[str, Any]:
     return {"status": "stopped", "message": "Simulation stopped"}
 
 
-@app.post("/api/simulation/reset")
+@app.post("/api/simulation/reset", dependencies=[Depends(require_api_key)])
 def reset_simulation() -> Dict[str, Any]:
     single_veh.reset()
     return {"status": "stopped", "message": "Simulation reset"}
@@ -217,7 +288,7 @@ def validate_config(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 
 # ── Full Simulation Lifecycle REST Routes ───────────────────────────────────
-@app.post("/api/simulation/new")
+@app.post("/api/simulation/new", dependencies=[Depends(require_api_key)])
 def create_simulation_v2(payload: ScenarioConfiguration) -> Dict[str, Any]:
     config_dict = payload.model_dump(exclude_none=True)
     return create_simulation(config_dict)
@@ -291,7 +362,7 @@ def _evict_completed_simulations() -> None:
         del simulations_db[sid]
 
 
-@app.post("/api/v1/simulations")
+@app.post("/api/v1/simulations", dependencies=[Depends(require_api_key)])
 def create_simulation(config: Dict[str, Any]) -> Dict[str, Any]:
     # Validate configuration against the schema (schema-level shape/bounds).
     try:
@@ -364,7 +435,7 @@ def create_simulation(config: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-@app.delete("/api/v1/simulations/{sim_id}")
+@app.delete("/api/v1/simulations/{sim_id}", dependencies=[Depends(require_api_key)])
 def delete_simulation(sim_id: str) -> Dict[str, Any]:
     """Explicitly removes a simulation from the in-memory registry.
 
@@ -381,7 +452,9 @@ def delete_simulation(sim_id: str) -> Dict[str, Any]:
     return {"status": "deleted", "simulationId": sim_id}
 
 
-@app.post("/api/v1/simulations/{sim_id}/control")
+@app.post(
+    "/api/v1/simulations/{sim_id}/control", dependencies=[Depends(require_api_key)]
+)
 def control_simulation(sim_id: str, payload: ControlRequest) -> Dict[str, Any]:
     sim = _get_simulation_or_404(sim_id)
     engine = sim["engine"]
@@ -555,76 +628,179 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     },
 }
 
-current_live_config: Dict[str, Any] = DEFAULT_CONFIG.copy()
-is_user_defined_seed: bool = False
+# ── Per-client isolation for the live/dual demo simulation state ───────────
+# current_live_config, live_sim_data, and dual_sim_orchestrator used to be
+# bare process-global singletons, so one client's /api/simulation/config or
+# /api/simulation/dual/reset call would silently reset what every other
+# connected client was watching. There is no existing session/user concept
+# in this API to key off of, so the smallest practical, dependency-free
+# (no Redis/DB) mechanism is a browser cookie — the closest thing to a
+# built-in "connection identifier" HTTP already provides.
+LIVE_SESSION_COOKIE = "ts_session"
+_DEFAULT_SESSION_KEY = "default"
+_LIVE_SESSION_PATH_PREFIX = "/api/simulation"
 
-live_sim_data: Dict[str, Any] = {
-    "engine": None,
-    "collector": None,
-    "controller": None,
-    "builder": None,
-    "config_id": None,
-}
+
+class _LiveSession:
+    """Per-client container for what used to be the three global variables."""
+
+    def __init__(self) -> None:
+        self.current_live_config: Dict[str, Any] = DEFAULT_CONFIG.copy()
+        self.is_user_defined_seed: bool = False
+        self.live_sim_data: Dict[str, Any] = {
+            "engine": None,
+            "collector": None,
+            "controller": None,
+            "builder": None,
+            "config_id": None,
+        }
+        self.dual_sim_orchestrator: Optional[DualSimulationOrchestrator] = None
+
+
+_live_sessions: Dict[str, _LiveSession] = {_DEFAULT_SESSION_KEY: _LiveSession()}
+_live_session_var: "contextvars.ContextVar[Optional[_LiveSession]]" = (
+    contextvars.ContextVar("live_session", default=None)
+)
+
+
+def _get_or_create_session(key: str) -> _LiveSession:
+    if key not in _live_sessions:
+        _live_sessions[key] = _LiveSession()
+    return _live_sessions[key]
+
+
+def _current_session() -> _LiveSession:
+    """Returns the live session for the current request context.
+
+    Falls back to one shared "default" session for anything that isn't a
+    request routed through `_live_session_middleware` with a valid cookie —
+    notably the two WebSocket handlers below (which resolve their own
+    session explicitly from `websocket.cookies`) and any direct/test call
+    outside of request handling. That fallback exactly matches this
+    application's previous single-shared-state behavior.
+    """
+    session = _live_session_var.get()
+    if session is not None:
+        return session
+    return _get_or_create_session(_DEFAULT_SESSION_KEY)
+
+
+@app.middleware("http")
+async def _live_session_middleware(request: Request, call_next: Any) -> Any:
+    """Resolves a per-client live-simulation session from a cookie.
+
+    Scoped to /api/simulation/* only (where the shared state actually
+    lives) so unrelated routes are unaffected. Standard session-cookie
+    bootstrap: an incoming cookie is reused as-is; a request with no cookie
+    mints one fresh id and uses that SAME id both for this request and for
+    the Set-Cookie response, so the very next request from that client
+    lands on the same (now-isolated) session rather than a different one.
+
+    This works transparently — no frontend changes needed — for any client
+    whose browser actually stores and resends the cookie: the deployed
+    nginx-proxied production topology (frontend and API share an origin,
+    see docker-compose.yml/frontend/nginx.conf), `npm run dev` (Vite's own
+    dev-server proxy forwards /api and /ws to the backend under the same
+    http://localhost:5173 origin — see frontend/vite.config.ts `server.proxy`
+    and frontend/src/config.ts, which defaults to relative URLs), and
+    same-origin test clients.
+
+    Known limitation: docker-compose.dev.yml's frontend container sets
+    VITE_API_URL to an absolute http://localhost:8000 URL, which makes the
+    browser call the backend cross-origin, bypassing Vite's proxy. Fetch
+    calls there don't set `credentials: "include"`, so the browser will
+    neither send nor store this cookie, and each request falls back to a
+    fresh, isolated, single-use session — i.e. the live/dual dashboard's
+    multi-step flows (config → play → stream) would not see continuity in
+    that one specific dev variant. Fixing that needs either a frontend
+    change (out of scope for this security/deployment-only batch) or
+    propagating the session via a query param/header instead of a cookie —
+    a bigger change than "smallest practical improvement" calls for here,
+    so it's documented as a follow-up rather than solved.
+    """
+    if not request.url.path.startswith(_LIVE_SESSION_PATH_PREFIX):
+        return await call_next(request)
+
+    incoming = request.cookies.get(LIVE_SESSION_COOKIE)
+    key = incoming or str(uuid.uuid4())
+    token = _live_session_var.set(_get_or_create_session(key))
+    try:
+        response = await call_next(request)
+    finally:
+        _live_session_var.reset(token)
+    if not incoming:
+        response.set_cookie(
+            LIVE_SESSION_COOKIE,
+            key,
+            httponly=True,
+            samesite="lax",
+            max_age=60 * 60 * 24,
+        )
+    return response
 
 
 def get_or_create_live_simulation() -> Dict[str, Any]:
-    global current_live_config
-    if live_sim_data["engine"] is None:
+    session = _current_session()
+    if session.live_sim_data["engine"] is None:
         clock = Clock(time_step=0.1)
-        duration = current_live_config.get("simulation", {}).get("duration", 300)
-        engine = SimulationEngine(clock, duration=duration, config=current_live_config)
-        controller = create_controller(current_live_config, engine.network)
+        duration = session.current_live_config.get("simulation", {}).get(
+            "duration", 300
+        )
+        engine = SimulationEngine(
+            clock, duration=duration, config=session.current_live_config
+        )
+        controller = create_controller(session.current_live_config, engine.network)
         engine.controller = controller
 
-        collector = MetricCollector(current_live_config)
+        collector = MetricCollector(session.current_live_config)
         config_id = str(uuid.uuid4())
         builder = SnapshotBuilder("live_sim", config_id, engine, collector, controller)
 
         engine.register_tick_callback(
             build_tick_callback(controller, clock, engine, collector)
         )
-        live_sim_data["engine"] = engine
-        live_sim_data["collector"] = collector
-        live_sim_data["controller"] = controller
-        live_sim_data["builder"] = builder
-        live_sim_data["config_id"] = config_id
-    return live_sim_data
+        session.live_sim_data["engine"] = engine
+        session.live_sim_data["collector"] = collector
+        session.live_sim_data["controller"] = controller
+        session.live_sim_data["builder"] = builder
+        session.live_sim_data["config_id"] = config_id
+    return session.live_sim_data
 
 
-@app.post("/api/simulation/config")
+@app.post("/api/simulation/config", dependencies=[Depends(require_api_key)])
 def update_simulation_config(payload: Dict[str, Any]) -> Dict[str, Any]:
-    global current_live_config, dual_sim_orchestrator, is_user_defined_seed
+    session = _current_session()
     # Shutdown existing simulation if running
-    if live_sim_data["engine"] is not None:
+    if session.live_sim_data["engine"] is not None:
         try:
-            live_sim_data["engine"].stop()
+            session.live_sim_data["engine"].stop()
         except Exception:
             pass
-        live_sim_data["engine"] = None
+        session.live_sim_data["engine"] = None
 
     # Reset dual orchestrator if existing
-    if dual_sim_orchestrator is not None:
+    if session.dual_sim_orchestrator is not None:
         try:
-            dual_sim_orchestrator.stop()
+            session.dual_sim_orchestrator.stop()
         except Exception:
             pass
-        dual_sim_orchestrator = None
+        session.dual_sim_orchestrator = None
 
     # Determine randomSeed (preserve user-provided seed explicitly)
     raw_seed = payload.get("randomSeed")
     if raw_seed is not None and str(raw_seed).strip() != "":
         try:
             seed_val = int(raw_seed)
-            is_user_defined_seed = True
+            session.is_user_defined_seed = True
         except (ValueError, TypeError):
             seed_val = random.randint(1, 10000000)
-            is_user_defined_seed = False
+            session.is_user_defined_seed = False
     else:
         seed_val = random.randint(1, 10000000)
-        is_user_defined_seed = False
+        session.is_user_defined_seed = False
 
     # Compile the config dictionary based on user payload
-    current_live_config = {
+    session.current_live_config = {
         "simulation": {
             "timeStep": DEFAULT_CONFIG["simulation"]["timeStep"],
             "duration": float(
@@ -698,11 +874,11 @@ def update_simulation_config(payload: Dict[str, Any]) -> Dict[str, Any]:
     }
 
     # Reset live simulation cache
-    live_sim_data["engine"] = None
-    live_sim_data["collector"] = None
-    live_sim_data["controller"] = None
-    live_sim_data["builder"] = None
-    live_sim_data["config_id"] = None
+    session.live_sim_data["engine"] = None
+    session.live_sim_data["collector"] = None
+    session.live_sim_data["controller"] = None
+    session.live_sim_data["builder"] = None
+    session.live_sim_data["config_id"] = None
 
     # Pre-create the simulation with new configuration parameters
     get_or_create_live_simulation()
@@ -714,17 +890,18 @@ def update_simulation_config(payload: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-@app.post("/api/simulation/play")
+@app.post("/api/simulation/play", dependencies=[Depends(require_api_key)])
 def play_live_simulation() -> Dict[str, Any]:
+    session = _current_session()
     sim = get_or_create_live_simulation()
     engine = sim["engine"]
     if engine.status == SimulationStatus.COMPLETED:
         # Re-randomize seed for the new run only if not explicitly user-defined
-        if not is_user_defined_seed:
-            current_live_config["simulation"]["randomSeed"] = random.randint(
+        if not session.is_user_defined_seed:
+            session.current_live_config["simulation"]["randomSeed"] = random.randint(
                 1, 10000000
             )
-        live_sim_data["engine"] = None
+        session.live_sim_data["engine"] = None
         sim = get_or_create_live_simulation()
         engine = sim["engine"]
         engine.start()
@@ -735,11 +912,11 @@ def play_live_simulation() -> Dict[str, Any]:
     return {
         "status": sim["engine"].status.value.lower(),
         "message": "Live simulation started/resumed",
-        "randomSeed": current_live_config["simulation"].get("randomSeed"),
+        "randomSeed": session.current_live_config["simulation"].get("randomSeed"),
     }
 
 
-@app.post("/api/simulation/pause")
+@app.post("/api/simulation/pause", dependencies=[Depends(require_api_key)])
 def pause_live_simulation() -> Dict[str, Any]:
     sim = get_or_create_live_simulation()
     sim["engine"].pause()
@@ -752,6 +929,8 @@ def pause_live_simulation() -> Dict[str, Any]:
 @app.websocket("/ws/simulation/live")
 async def websocket_live_stream(websocket: WebSocket) -> None:
     await websocket.accept()
+    session_key = websocket.cookies.get(LIVE_SESSION_COOKIE) or _DEFAULT_SESSION_KEY
+    token = _live_session_var.set(_get_or_create_session(session_key))
     last_status: Optional[str] = None
     last_sent_time = 0.0
 
@@ -784,33 +963,34 @@ async def websocket_live_stream(websocket: WebSocket) -> None:
             await websocket.close(code=1011, reason=str(e))
         except Exception:
             pass
-
-
-dual_sim_orchestrator: DualSimulationOrchestrator | None = None
+    finally:
+        _live_session_var.reset(token)
 
 
 def get_or_create_dual_orchestrator() -> DualSimulationOrchestrator:
-    global dual_sim_orchestrator
-    if dual_sim_orchestrator is None:
-        dual_sim_orchestrator = DualSimulationOrchestrator(current_live_config)
-    return dual_sim_orchestrator
+    session = _current_session()
+    if session.dual_sim_orchestrator is None:
+        session.dual_sim_orchestrator = DualSimulationOrchestrator(
+            session.current_live_config
+        )
+    return session.dual_sim_orchestrator
 
 
-@app.post("/api/simulation/dual/play")
+@app.post("/api/simulation/dual/play", dependencies=[Depends(require_api_key)])
 def play_dual_simulation() -> Dict[str, Any]:
-    global dual_sim_orchestrator
+    session = _current_session()
     orch = get_or_create_dual_orchestrator()
     status = orch.engine_signal.status
     if status == SimulationStatus.COMPLETED:
         # Re-randomize shared seed for next dual comparison run only if not user-defined
-        if dual_sim_orchestrator is not None:
+        if session.dual_sim_orchestrator is not None:
             try:
-                dual_sim_orchestrator.stop()
+                session.dual_sim_orchestrator.stop()
             except Exception:
                 pass
-        dual_sim_orchestrator = None
-        if not is_user_defined_seed:
-            current_live_config["simulation"]["randomSeed"] = random.randint(
+        session.dual_sim_orchestrator = None
+        if not session.is_user_defined_seed:
+            session.current_live_config["simulation"]["randomSeed"] = random.randint(
                 1, 10000000
             )
         orch = get_or_create_dual_orchestrator()
@@ -822,34 +1002,36 @@ def play_dual_simulation() -> Dict[str, Any]:
     return {
         "status": orch.get_status(),
         "message": "Dual simulation started/resumed",
-        "randomSeed": current_live_config["simulation"].get("randomSeed"),
+        "randomSeed": session.current_live_config["simulation"].get("randomSeed"),
     }
 
 
-@app.post("/api/simulation/dual/pause")
+@app.post("/api/simulation/dual/pause", dependencies=[Depends(require_api_key)])
 def pause_dual_simulation() -> Dict[str, Any]:
     orch = get_or_create_dual_orchestrator()
     orch.pause()
     return {"status": orch.get_status(), "message": "Dual simulation paused"}
 
 
-@app.post("/api/simulation/dual/reset")
+@app.post("/api/simulation/dual/reset", dependencies=[Depends(require_api_key)])
 def reset_dual_simulation() -> Dict[str, Any]:
-    global dual_sim_orchestrator
-    if dual_sim_orchestrator is not None:
+    session = _current_session()
+    if session.dual_sim_orchestrator is not None:
         try:
-            dual_sim_orchestrator.stop()
+            session.dual_sim_orchestrator.stop()
         except Exception:
             pass
-    dual_sim_orchestrator = None
+    session.dual_sim_orchestrator = None
     # Generate a fresh shared random seed only if not user-defined
-    if not is_user_defined_seed:
-        current_live_config["simulation"]["randomSeed"] = random.randint(1, 10000000)
+    if not session.is_user_defined_seed:
+        session.current_live_config["simulation"]["randomSeed"] = random.randint(
+            1, 10000000
+        )
     orch = get_or_create_dual_orchestrator()
     return {
         "status": orch.get_status(),
         "message": "Dual simulation reset",
-        "randomSeed": current_live_config["simulation"].get("randomSeed"),
+        "randomSeed": session.current_live_config["simulation"].get("randomSeed"),
     }
 
 
@@ -866,6 +1048,8 @@ def get_dual_simulation_status() -> Dict[str, Any]:
 @app.websocket("/ws/simulation/dual")
 async def websocket_dual_stream(websocket: WebSocket) -> None:
     await websocket.accept()
+    session_key = websocket.cookies.get(LIVE_SESSION_COOKIE) or _DEFAULT_SESSION_KEY
+    token = _live_session_var.set(_get_or_create_session(session_key))
     last_status: Optional[str] = None
     last_sent_time = 0.0
 
@@ -896,6 +1080,8 @@ async def websocket_dual_stream(websocket: WebSocket) -> None:
             await websocket.close(code=1011, reason=str(e))
         except Exception:
             pass
+    finally:
+        _live_session_var.reset(token)
 
 
 # ── Week 7 & Week 8: Study, Volume Sweeps, History & Validation Endpoints ────
@@ -920,7 +1106,7 @@ class RepeatabilityValidationRequest(BaseModel):
     randomSeed: int = 12345
 
 
-@app.post("/api/v1/study/sweeps/run")
+@app.post("/api/v1/study/sweeps/run", dependencies=[Depends(require_api_key)])
 def run_sweep_endpoint(payload: VolumeSweepRequest | None = None) -> Dict[str, Any]:
     """Runs an automated traffic volume sweep comparing Signals vs. Roundabouts."""
     req = payload or VolumeSweepRequest()
@@ -1078,7 +1264,10 @@ def compare_runs_endpoint(payload: RunComparisonRequest) -> Dict[str, Any]:
     raise HTTPException(status_code=500, detail="Database connection error")
 
 
-@app.post("/api/v1/study/history/runs/{run_id}/reproduce")
+@app.post(
+    "/api/v1/study/history/runs/{run_id}/reproduce",
+    dependencies=[Depends(require_api_key)],
+)
 def reproduce_run_endpoint(run_id: str) -> Dict[str, Any]:
     """Re-executes the exact run headlessly using its stored configuration and seed to verify determinism."""
     init_db()
@@ -1175,7 +1364,9 @@ def reproduce_run_endpoint(run_id: str) -> Dict[str, Any]:
     raise HTTPException(status_code=500, detail="Database connection error")
 
 
-@app.post("/api/v1/study/validate/repeatability")
+@app.post(
+    "/api/v1/study/validate/repeatability", dependencies=[Depends(require_api_key)]
+)
 def validate_repeatability_endpoint(
     payload: RepeatabilityValidationRequest | None = None,
 ) -> Dict[str, Any]:
@@ -1187,7 +1378,9 @@ def validate_repeatability_endpoint(
     )
 
 
-@app.post("/api/v1/study/validate/monte-carlo")
+@app.post(
+    "/api/v1/study/validate/monte-carlo", dependencies=[Depends(require_api_key)]
+)
 def validate_monte_carlo_endpoint(
     payload: MonteCarloValidationRequest | None = None,
 ) -> Dict[str, Any]:
@@ -1221,7 +1414,7 @@ class SaveReplayRequest(BaseModel):
     metrics: Dict[str, Any]
 
 
-@app.post("/api/v1/replays")
+@app.post("/api/v1/replays", dependencies=[Depends(require_api_key)])
 def save_replay(payload: SaveReplayRequest) -> Dict[str, Any]:
     init_db()
     with get_db_connection() as conn:
@@ -1268,7 +1461,7 @@ def get_replay(replay_id: str) -> Dict[str, Any]:
     raise HTTPException(status_code=500, detail="Database connection error")
 
 
-@app.delete("/api/v1/replays/{replay_id}")
+@app.delete("/api/v1/replays/{replay_id}", dependencies=[Depends(require_api_key)])
 def delete_replay(replay_id: str) -> Dict[str, Any]:
     init_db()
     with get_db_connection() as conn:

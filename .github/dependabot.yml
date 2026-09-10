@@ -1,5 +1,6 @@
 # Dependabot configuration file
-# Monitors backend (pip), frontend (npm), and GitHub Actions for dependency updates.
+# Monitors backend (pip), frontend (npm), Docker base images, and GitHub
+# Actions for dependency updates.
 
 version: 2
 updates:
@@ -32,5 +33,27 @@ updates:
     open-pull-requests-limit: 5
     groups:
       node-dependencies:
+        patterns:
+          - "*"
+
+  # Maintain the backend's Docker base images
+  - package-ecosystem: "docker"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      docker-dependencies:
+        patterns:
+          - "*"
+
+  # Maintain the frontend's Docker base images
+  - package-ecosystem: "docker"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      docker-dependencies:
         patterns:
           - "*"
