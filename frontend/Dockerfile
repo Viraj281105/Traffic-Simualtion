@@ -1,5 +1,5 @@
 # ── Build Stage ─────────────────────────────────────────────────────────────
-FROM node:20.20.2-alpine AS builder
+FROM node:26.8-alpine AS builder
 
 WORKDIR /app
 
@@ -21,7 +21,7 @@ RUN npm run build
 # built to run as the non-root "nginx" user on port 8080 instead, with the
 # handful of runtime directories nginx needs to write to (cache, pid,
 # temp) already owned by that user — no manual chown list required.
-FROM nginxinc/nginx-unprivileged:1.27.5-alpine
+FROM nginxinc/nginx-unprivileged:1.31.5-alpine
 
 USER root
 
