@@ -315,12 +315,15 @@ def get_simulation_metrics(sim_id: str) -> Dict[str, Any]:
     sim = _get_simulation_or_404(sim_id)
     engine = sim["engine"]
     collector: MetricCollector = sim["collector"]
-    return collector.get_metrics(
-        engine.clock.get_elapsed_time(),
-        engine.pool.active_vehicles,
-        engine.pool.exited_vehicles,
-        engine.spawner.spawned_count if engine.spawner else 0,
-    )
+    # Hold the engine's lock so this doesn't race the background simulation
+    # thread mutating pool.active_vehicles/exited_vehicles mid-tick.
+    with engine.lock:
+        return collector.get_metrics(
+            engine.clock.get_elapsed_time(),
+            engine.pool.active_vehicles,
+            engine.pool.exited_vehicles,
+            engine.spawner.spawned_count if engine.spawner else 0,
+        )
 
 
 @app.get("/api/v1/simulations/{sim_id}/history")
@@ -348,13 +351,15 @@ def get_simulation_report(sim_id: str, format: str = "csv") -> Any:  # noqa: A00
     engine = sim["engine"]
     collector = sim["collector"]
 
-    # Get final metrics
-    final_metrics = collector.get_metrics(
-        engine.clock.get_elapsed_time(),
-        engine.pool.active_vehicles,
-        engine.pool.exited_vehicles,
-        engine.spawner.spawned_count if engine.spawner else 0,
-    )
+    # Get final metrics. Hold the engine's lock so this doesn't race the
+    # background simulation thread mutating the vehicle lists mid-tick.
+    with engine.lock:
+        final_metrics = collector.get_metrics(
+            engine.clock.get_elapsed_time(),
+            engine.pool.active_vehicles,
+            engine.pool.exited_vehicles,
+            engine.spawner.spawned_count if engine.spawner else 0,
+        )
 
     if format == "json":
         return {

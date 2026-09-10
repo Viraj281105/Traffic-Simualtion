@@ -25,6 +25,17 @@ class SnapshotBuilder:
 
     def build(self) -> Dict[str, Any]:
         """Assembles a state dictionary conforming to snapshot.schema.json."""
+        # Hold the engine's lock for the whole build so this never reads a
+        # torn tick or has pool.active_vehicles/exited_vehicles mutated out
+        # from under it mid-iteration (see SimulationEngine.lock / .step()).
+        # Safe to call both from a REST/WebSocket handler (a different
+        # thread acquiring the lock) and from a tick callback running
+        # synchronously inside step() itself (RLock allows the reentrant
+        # acquisition on that same thread).
+        with self.engine.lock:
+            return self._build_locked()
+
+    def _build_locked(self) -> Dict[str, Any]:
         clock = self.engine.clock
         elapsed = clock.get_elapsed_time()
         dt = clock.time_step

@@ -1,5 +1,6 @@
 import json
 import logging
+import random
 import threading
 import time
 from typing import Any, Dict, Optional
@@ -53,9 +54,17 @@ class DualSimulationOrchestrator:
         # Propagate random seed to align spawn sequences for fair comparison
         seed = config.get("simulation", {}).get("randomSeed")
         if seed is None:
-            import random
-
-            seed = random.randint(1, 10000000)
+            # Never fall back to the shared global `random` module (see
+            # vehicles/spawner.py for the same fix and rationale). Use a
+            # private, independently OS-seeded instance instead, and log
+            # the fallback so it is never silent.
+            seed = random.Random().randint(1, 10_000_000)
+            logger.warning(
+                "No simulation.randomSeed configured for dual simulation; "
+                "generated seed=%d for this comparison run. Pass "
+                "randomSeed explicitly for reproducible comparisons.",
+                seed,
+            )
             if "simulation" not in self.config:
                 self.config["simulation"] = {}
             self.config["simulation"]["randomSeed"] = seed

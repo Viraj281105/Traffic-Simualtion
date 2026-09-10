@@ -38,23 +38,42 @@ from src.vehicles.vehicle import Vehicle
 
 
 class Phase:
-    """Describes one phase of the signal cycle."""
+    """Describes one phase of the signal cycle.
 
-    __slots__ = ("name", "direction", "allowed_turns", "duration", "color")
+    ``directions`` holds every approach that is active during this phase —
+    a 1-tuple for the default one-direction-at-a-time cycle, or 2+ entries
+    for a grouped/paired phase built from a configured ``phaseSequence``
+    entry such as ``"ns_green"`` (NORTH + SOUTH share the green together).
+    """
+
+    __slots__ = ("name", "directions", "allowed_turns", "duration", "color")
 
     def __init__(
         self,
         name: str,
-        direction: Direction,
+        directions: Tuple[Direction, ...],
         allowed_turns: Tuple[TurnIntent, ...],
         duration: float,
         color: str,
     ) -> None:
         self.name = name
-        self.direction = direction
+        self.directions = directions
         self.allowed_turns = allowed_turns
         self.duration = duration
         self.color = color  # "green", "yellow", "red"
+
+
+# Maps a phaseSequence group token to the approach(es) it activates.
+_GROUP_TO_DIRECTIONS: Dict[str, Tuple[Direction, ...]] = {
+    "n": (Direction.NORTH,),
+    "s": (Direction.SOUTH,),
+    "e": (Direction.EAST,),
+    "w": (Direction.WEST,),
+    "ns": (Direction.NORTH, Direction.SOUTH),
+    "sn": (Direction.NORTH, Direction.SOUTH),
+    "ew": (Direction.EAST, Direction.WEST),
+    "we": (Direction.EAST, Direction.WEST),
+}
 
 
 # ---------------------------------------------------------------------------
@@ -102,8 +121,17 @@ class FixedTimeSignalController(BaseController):
         if "allRedTime" in ctrl_cfg and "allRedDuration" not in ctrl_cfg:
             self.all_red_duration = ctrl_cfg["allRedTime"]
 
-        # Direction processing order
+        # Direction processing order (used only for the default, no-
+        # phaseSequence cycle)
         self.direction_order: Tuple[Direction, ...] = self._DEFAULT_DIRECTION_ORDER
+
+        # Configured phase sequence (e.g. ["ns_green", "ns_yellow",
+        # "all_red", "ew_green", "ew_yellow", "all_red"], see
+        # ControllerSection.phaseSequence) and coordination offset. Both are
+        # optional — when phaseSequence is absent, the existing default
+        # one-direction-at-a-time cycle below is used unchanged.
+        self.phase_sequence_cfg: List[str] = list(ctrl_cfg.get("phaseSequence") or [])
+        self.offset: float = float(ctrl_cfg.get("offset", 0.0))
 
         # Build phase sequence
         self.phases: List[Phase] = self._build_phase_sequence()
@@ -115,7 +143,17 @@ class FixedTimeSignalController(BaseController):
         self.reset()
 
     def _build_phase_sequence(self) -> List[Phase]:
-        """Construct the full cycle of phases."""
+        """Construct the full cycle of phases.
+
+        If a ``phaseSequence`` was configured, build grouped phases from it
+        (e.g. "ns_green" = NORTH+SOUTH green together — permissive lefts are
+        then arbitrated by ConflictManager, see vehicles/pool.py). Otherwise
+        preserve the existing default: one direction at a time, each with a
+        dedicated straight+right phase followed by a protected left phase.
+        """
+        if self.phase_sequence_cfg:
+            return self._build_phase_sequence_from_names(self.phase_sequence_cfg)
+
         phases: List[Phase] = []
 
         for direction in self.direction_order:
@@ -123,7 +161,7 @@ class FixedTimeSignalController(BaseController):
             phases.append(
                 Phase(
                     name=f"{direction.value}_straight_right",
-                    direction=direction,
+                    directions=(direction,),
                     allowed_turns=(TurnIntent.STRAIGHT, TurnIntent.RIGHT),
                     duration=self.straight_right_duration,
                     color="green",
@@ -133,7 +171,7 @@ class FixedTimeSignalController(BaseController):
             phases.append(
                 Phase(
                     name=f"{direction.value}_left",
-                    direction=direction,
+                    directions=(direction,),
                     allowed_turns=(TurnIntent.LEFT,),
                     duration=self.left_duration,
                     color="green",
@@ -143,7 +181,7 @@ class FixedTimeSignalController(BaseController):
             phases.append(
                 Phase(
                     name=f"{direction.value}_yellow",
-                    direction=direction,
+                    directions=(direction,),
                     allowed_turns=(
                         TurnIntent.LEFT,
                         TurnIntent.STRAIGHT,
@@ -157,10 +195,65 @@ class FixedTimeSignalController(BaseController):
             phases.append(
                 Phase(
                     name="all_red",
-                    direction=direction,  # direction is irrelevant for all-red
+                    directions=(),  # no direction is green during all-red
                     allowed_turns=(),
                     duration=self.all_red_duration,
                     color="red",
+                )
+            )
+
+        return phases
+
+    def _build_phase_sequence_from_names(self, names: List[str]) -> List[Phase]:
+        """Build phases from a configured ``phaseSequence`` list.
+
+        Each entry is either the literal ``"all_red"`` or
+        ``"<group>_<green|yellow>"`` where ``<group>`` is one of
+        n/s/e/w/ns/ew (see ``_GROUP_TO_DIRECTIONS``). Durations reuse the
+        same configurable knobs as the default cycle (straightRightDuration
+        for green, yellowDuration for yellow, allRedDuration for all_red) so
+        no new timing model is introduced. All movements are allowed during
+        a green group phase (including LEFT — permissive left turns across
+        opposing traffic are arbitrated by ConflictManager).
+        """
+        phases: List[Phase] = []
+        all_turns = (TurnIntent.LEFT, TurnIntent.STRAIGHT, TurnIntent.RIGHT)
+
+        for raw_name in names:
+            name = raw_name.strip().lower()
+
+            if name == "all_red":
+                phases.append(
+                    Phase(
+                        name="all_red",
+                        directions=(),
+                        allowed_turns=(),
+                        duration=self.all_red_duration,
+                        color="red",
+                    )
+                )
+                continue
+
+            group, sep, color = name.rpartition("_")
+            directions = _GROUP_TO_DIRECTIONS.get(group) if sep else None
+            if directions is None or color not in ("green", "yellow"):
+                raise ValueError(
+                    f"Unsupported phaseSequence entry {raw_name!r}; expected "
+                    "'<n|s|e|w|ns|ew>_<green|yellow>' or 'all_red'"
+                )
+
+            duration = (
+                self.straight_right_duration
+                if color == "green"
+                else self.yellow_duration
+            )
+            phases.append(
+                Phase(
+                    name=raw_name,
+                    directions=directions,
+                    allowed_turns=all_turns,
+                    duration=duration,
+                    color=color,
                 )
             )
 
@@ -200,7 +293,33 @@ class FixedTimeSignalController(BaseController):
         self.time_in_current_state = 0.0
         self.cycle_number = 0
         self.current_phase_idx = 0
+
+        if self.offset:
+            total = sum(p.duration for p in self.phases)
+            if total > 0:
+                self._advance_by(self.offset % total)
+
         self._apply_signals()
+
+    def _advance_by(self, seconds: float) -> None:
+        """Advance the phase cursor by ``seconds`` (used to seed the initial
+        ``offset``), without re-applying signals at every intermediate step."""
+        remaining = seconds
+        while remaining > 0:
+            phase = self.phases[self.current_phase_idx]
+            time_left_in_phase = phase.duration - self.time_in_current_state
+            if remaining < time_left_in_phase:
+                self.time_in_current_state += remaining
+                remaining = 0.0
+            else:
+                remaining -= time_left_in_phase
+                self.time_in_current_state = 0.0
+                old_idx = self.current_phase_idx
+                self.current_phase_idx = (self.current_phase_idx + 1) % len(
+                    self.phases
+                )
+                if self.current_phase_idx < old_idx:
+                    self.cycle_number += 1
 
     @property
     def current_phase(self) -> Phase:
@@ -244,7 +363,7 @@ class FixedTimeSignalController(BaseController):
                 should_be_green = False
                 is_yellow_phase = False
 
-                if phase.direction == d and any(
+                if d in phase.directions and any(
                     t in phase.allowed_turns for t in lane_turns
                 ):
                     if phase.color == "green":
@@ -285,7 +404,7 @@ class FixedTimeSignalController(BaseController):
             # lanes not needed
 
             # Determine aggregate color and allowed turns for this direction
-            if phase.direction == d and phase.color in ("green", "yellow"):
+            if d in phase.directions and phase.color in ("green", "yellow"):
                 color = phase.color
                 allowed = [t.value for t in phase.allowed_turns]
             else:
@@ -306,7 +425,7 @@ class FixedTimeSignalController(BaseController):
             "currentPhase": phase.name,
             "phaseTimeRemaining": round(self.phase_time_remaining, 2),
             "cycleNumber": self.cycle_number,
-            "activeDirection": phase.direction.value,
+            "activeDirection": "+".join(d.value for d in phase.directions),
             "activeColor": phase.color,
             "signals": signals,
         }
