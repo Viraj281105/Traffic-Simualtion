@@ -201,19 +201,25 @@ All endpoints are prefixed with a version identifier:
 **Valid Actions:** `start`, `pause`, `resume`, `stop`
 
 > **Audited 2026-09-11 against `backend/src/main.py`:** the response
-> currently returns only `status` (the simulation's status after the
-> action). `simulationId`, `previousStatus`, and `timestamp` are not
-> returned today — they remain a desired future, purely additive
-> enhancement.
+> returns `status` (the simulation's status after the action, unchanged
+> from before), plus `simulationId`, `previousStatus` (the status
+> immediately before the successful transition), `currentStatus` (the
+> resulting engine status — the same value as `status`), and `timestamp`
+> (the response timestamp, in the API's existing UTC-`Z` convention — see
+> §6.1). On a failed transition (`409 INVALID_STATE_TRANSITION`), none of
+> this is returned — the existing error envelope (§6.1) is used instead,
+> never a success-shaped payload.
 
 **Response (200 OK — current):**
 ```json
 {
-  "status": "running"
+  "status": "running",
+  "simulationId": "sim_a1b2c3d4",
+  "previousStatus": "initialized",
+  "currentStatus": "running",
+  "timestamp": "2026-07-23T14:30:01.000Z"
 }
 ```
-
-**Planned/future (not implemented):** echoing back `simulationId`, `previousStatus` (the status before this action), and `timestamp` alongside the current status.
 
 **State Transitions:**
 
@@ -636,7 +642,6 @@ of them are scheduled or decided, only identified:
 |------|------------------|----------------|
 | `createdAt` / `config` on create-simulation response | §3.3 | Not implemented |
 | `progress` / `currentTick` / `totalTicks` / `elapsedTime` / `totalTime` on status response | §3.4 | Not implemented |
-| `simulationId` / `previousStatus` / `timestamp` on control response | §3.5 | Not implemented |
 | `GET /api/v1/simulations` (list) | §3.7 | Not implemented |
 | Structured `422` error envelope matching §6.1 | §6.1 | Not implemented; current shape is FastAPI's default and is relied on by an existing test |
 | Resource-specific 404 codes (e.g. `SIMULATION_NOT_FOUND`) | §6.2 | Not implemented; current generic `NOT_FOUND` is relied on by an existing test |
