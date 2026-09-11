@@ -355,16 +355,20 @@ def create_simulation_v2(payload: ScenarioConfiguration) -> Dict[str, Any]:
 
 
 def _persist_completed_run(
-    sim_id: str, config: Dict[str, Any], engine: SimulationEngine, collector: MetricCollector
+    sim_id: str,
+    config: Dict[str, Any],
+    engine: SimulationEngine,
+    collector: MetricCollector,
+    status: str = "completed",
 ) -> None:
-    """Records a completed (or stopped) simulation into simulation_runs.
+    """Records a completed, stopped, or errored simulation into simulation_runs.
 
     Reads the random seed straight from the spawner — the single
     authoritative place a seed is resolved (see VehicleSpawner.__init__) —
     so the persisted seed is always the exact one actually used, whether it
     was user-supplied or auto-generated. Any failure here is logged and
     swallowed rather than propagated, so a database hiccup can never flip an
-    otherwise-successful simulation into an error state.
+    otherwise-successful simulation into an error state or mask a simulation failure.
     """
     try:
         itype = config.get("geometry", {}).get("intersectionType", "unknown")
@@ -375,18 +379,26 @@ def _persist_completed_run(
         )
         arrival_rate = config.get("traffic", {}).get("arrivalRate", 0.5)
         elapsed = engine.clock.get_elapsed_time()
-        final_metrics = collector.get_metrics(
-            elapsed,
-            engine.pool.active_vehicles,
-            engine.pool.exited_vehicles,
-            engine.spawner.spawned_count if engine.spawner else 0,
-            engine.pool.collision_count,
-        )
+        try:
+            final_metrics = collector.get_metrics(
+                elapsed,
+                engine.pool.active_vehicles,
+                engine.pool.exited_vehicles,
+                engine.spawner.spawned_count if engine.spawner else 0,
+                engine.pool.collision_count,
+            )
+        except Exception:
+            logger.exception(
+                "Failed to calculate metrics for simulation %s with status %s",
+                sim_id,
+                status,
+            )
+            final_metrics = {}
         with get_db_connection() as conn:
             SimulationRunDAO.save(
                 conn,
                 sim_id,
-                "completed",
+                status,
                 elapsed,
                 intersection_type=itype,
                 random_seed=seed,
@@ -468,16 +480,35 @@ def create_simulation(config: Dict[str, Any]) -> Dict[str, Any]:
         build_tick_callback(controller, clock, engine, collector, buffer, builder)
     )
     # Persist to run history the moment the simulation completes (naturally
-    # or via an explicit stop) — the single existing "run-save flow" this
-    # extends to cover ordinary /api/v1/simulations runs, not just sweeps
-    # and manually-saved replays.
-    engine.register_status_callback(
-        lambda new_status: (
-            _persist_completed_run(sim_id, config, engine, collector)
-            if new_status == SimulationStatus.COMPLETED
-            else None
-        )
-    )
+    # or via an explicit stop) or terminates in an error state — the single
+    # existing "run-save flow" this extends to cover ordinary /api/v1/simulations
+    # runs, not just sweeps and manually-saved replays.
+    has_persisted = False
+    persist_lock = threading.Lock()
+
+    def _on_status_change(new_status: SimulationStatus) -> None:
+        nonlocal has_persisted
+        if new_status in (SimulationStatus.COMPLETED, SimulationStatus.ERROR):
+            with persist_lock:
+                if has_persisted:
+                    return
+                has_persisted = True
+            try:
+                _persist_completed_run(
+                    sim_id,
+                    config,
+                    engine,
+                    collector,
+                    status=new_status.value.lower(),
+                )
+            except Exception:
+                logger.exception(
+                    "Failed to persist simulation run %s on status transition %s",
+                    sim_id,
+                    new_status,
+                )
+
+    engine.register_status_callback(_on_status_change)
 
     created_at = time.time()
     with simulations_lock:

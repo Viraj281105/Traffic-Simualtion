@@ -4,9 +4,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 import src.database.db as db_module
+from src.core.enums import SimulationStatus
 from src.database.dao import SimulationRunDAO
 from src.database.db import get_db_connection, init_db
-from src.main import app
+from src.main import app, simulations_db
 
 
 @pytest.fixture
@@ -391,3 +392,192 @@ def test_user_seed_preservation(test_db):
     res_reset = client.post("/api/simulation/dual/reset")
     assert res_reset.status_code == 200
     assert res_reset.json()["randomSeed"] == 88888
+
+
+def test_error_simulation_persists_to_history(test_db):
+    """Verifies that a simulation terminating in an ERROR status is persisted
+    with status 'error' and all required lifecycle metadata."""
+    client = TestClient(app)
+    config = {
+        "simulation": {
+            "timeStep": 0.1,
+            "duration": 5.0,
+            "warmupTime": 0.0,
+            "randomSeed": 12345,
+        },
+        "traffic": {"arrivalRate": 0.45},
+        "geometry": {
+            "intersectionType": "fixed_time_signal",
+            "intersectionCenter": {"x": 0.0, "y": 0.0},
+            "boundingRadius": 15.0,
+        },
+        "controller": {
+            "greenDuration": 30,
+            "yellowDuration": 5,
+            "allRedDuration": 2,
+        },
+        "vehicleGeneration": {
+            "stopSpeedThreshold": 0.1,
+            "waitSpeedThreshold": 0.5,
+        },
+    }
+
+    res_create = client.post("/api/v1/simulations", json=config)
+    assert res_create.status_code == 201
+    sim_id = res_create.json()["simulationId"]
+
+    # Inject an error into step() so the simulation transitions to ERROR during execution
+    engine = simulations_db[sim_id]["engine"]
+
+    def failing_step():
+        raise RuntimeError("Simulated vehicle crash / step failure")
+
+    engine.step = failing_step
+
+    # Start simulation
+    res_start = client.post(
+        f"/api/v1/simulations/{sim_id}/control", json={"action": "start"}
+    )
+    assert res_start.status_code == 200
+
+    # Wait for the background thread to catch the error and transition to ERROR
+    if engine._thread:
+        engine._thread.join(timeout=3.0)
+
+    assert engine.status == SimulationStatus.ERROR
+
+    # Verify persisted record in DB
+    with get_db_connection() as conn:
+        run = SimulationRunDAO.get(conn, sim_id)
+        assert run is not None
+        assert run["id"] == sim_id
+        assert run["status"] == "error"
+        assert run["intersection_type"] == "fixed_time_signal"
+        assert run["random_seed"] == 12345
+        assert run["arrival_rate"] == 0.45
+        assert run["config"]["simulation"]["randomSeed"] == 12345
+        assert isinstance(run["summary_metrics"], dict)
+
+    # Verify run is retrievable via history API
+    res_history = client.get(f"/api/v1/study/history/runs/{sim_id}")
+    assert res_history.status_code == 200
+    assert res_history.json()["run"]["status"] == "error"
+
+
+def test_completed_simulation_persists_exactly_once(test_db):
+    """Verifies that a completed simulation produces exactly one persisted record
+    even if stop or other status transitions occur subsequently."""
+    client = TestClient(app)
+    config = {
+        "simulation": {
+            "timeStep": 0.1,
+            "duration": 1.0,
+            "warmupTime": 0.0,
+            "randomSeed": 54321,
+        },
+        "traffic": {"arrivalRate": 0.3},
+        "geometry": {
+            "intersectionType": "fixed_time_signal",
+            "intersectionCenter": {"x": 0.0, "y": 0.0},
+            "boundingRadius": 15.0,
+        },
+        "controller": {
+            "greenDuration": 30,
+            "yellowDuration": 5,
+            "allRedDuration": 2,
+        },
+        "vehicleGeneration": {
+            "stopSpeedThreshold": 0.1,
+            "waitSpeedThreshold": 0.5,
+        },
+    }
+
+    res_create = client.post("/api/v1/simulations", json=config)
+    assert res_create.status_code == 201
+    sim_id = res_create.json()["simulationId"]
+
+    # Start simulation
+    res_start = client.post(
+        f"/api/v1/simulations/{sim_id}/control", json={"action": "start"}
+    )
+    assert res_start.status_code == 200
+
+    # Explicitly stop to complete it
+    res_stop = client.post(
+        f"/api/v1/simulations/{sim_id}/control", json={"action": "stop"}
+    )
+    assert res_stop.status_code == 200
+
+    engine = simulations_db[sim_id]["engine"]
+    assert engine.status == SimulationStatus.COMPLETED
+
+    # Send stop action again (attempting duplicate transition)
+    client.post(f"/api/v1/simulations/{sim_id}/control", json={"action": "stop"})
+
+    # Check persistence count in database
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM simulation_runs WHERE id = ?;", (sim_id,))
+        count = cursor.fetchone()[0]
+        assert count == 1
+
+        run = SimulationRunDAO.get(conn, sim_id)
+        assert run is not None
+        assert run["status"] == "completed"
+
+
+def test_persistence_failure_does_not_mask_simulation_error(test_db, monkeypatch):
+    """Verifies that an error during persistence (e.g. database error) is swallowed
+    and does not prevent engine transitioning to ERROR or crash the worker thread."""
+    client = TestClient(app)
+    config = {
+        "simulation": {
+            "timeStep": 0.1,
+            "duration": 5.0,
+            "warmupTime": 0.0,
+            "randomSeed": 9999,
+        },
+        "traffic": {"arrivalRate": 0.2},
+        "geometry": {
+            "intersectionType": "fixed_time_signal",
+            "intersectionCenter": {"x": 0.0, "y": 0.0},
+            "boundingRadius": 15.0,
+        },
+        "controller": {
+            "greenDuration": 30,
+            "yellowDuration": 5,
+            "allRedDuration": 2,
+        },
+        "vehicleGeneration": {
+            "stopSpeedThreshold": 0.1,
+            "waitSpeedThreshold": 0.5,
+        },
+    }
+
+    # Force SimulationRunDAO.save to fail
+    def mock_save(*args, **kwargs):
+        raise sqlite3.OperationalError("Database disk image is malformed")
+
+    monkeypatch.setattr(SimulationRunDAO, "save", mock_save)
+
+    res_create = client.post("/api/v1/simulations", json=config)
+    assert res_create.status_code == 201
+    sim_id = res_create.json()["simulationId"]
+
+    engine = simulations_db[sim_id]["engine"]
+
+    def failing_step():
+        raise RuntimeError("Original simulation exception")
+
+    engine.step = failing_step
+
+    res_start = client.post(
+        f"/api/v1/simulations/{sim_id}/control", json={"action": "start"}
+    )
+    assert res_start.status_code == 200
+
+    if engine._thread:
+        engine._thread.join(timeout=3.0)
+
+    # Engine status should still be ERROR despite persistence failure
+    assert engine.status == SimulationStatus.ERROR
