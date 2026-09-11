@@ -146,7 +146,7 @@ All endpoints are prefixed with a version identifier:
 {
   "simulationId": "sim_a1b2c3d4",
   "configId": "cfg_e5f6g7h8",
-  "status": "initializing"
+  "status": "initialized"
 }
 ```
 
@@ -219,14 +219,14 @@ All endpoints are prefixed with a version identifier:
 
 ```mermaid
 stateDiagram-v2
-    [*] --> initializing: POST /simulations
-    initializing --> running: action=start
+    [*] --> initialized: POST /simulations
+    initialized --> running: action=start
     running --> paused: action=pause
     paused --> running: action=resume
     running --> completed: simulation ends
     running --> stopped: action=stop
     paused --> stopped: action=stop
-    initializing --> error: init failure
+    initialized --> error: init failure
     running --> error: runtime error
 ```
 

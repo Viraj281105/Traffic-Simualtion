@@ -188,7 +188,7 @@ Real-time metric values computed up to the current tick. All values are cumulati
 
 | Value | Description |
 |-------|-------------|
-| `"initializing"` | Simulation is being set up |
+| `"initialized"` | Simulation is being set up |
 | `"running"` | Simulation is actively ticking |
 | `"paused"` | Simulation is paused (can be resumed) |
 | `"completed"` | Simulation has finished (reached max time or max vehicles) |
