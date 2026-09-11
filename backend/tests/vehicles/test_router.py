@@ -153,5 +153,44 @@ def test_find_leader_roundabout_spacing() -> None:
 
     leader, gap = find_leader(v1, network=network, active_vehicles=[v1, v2])
     assert leader == v2
-    assert gap > 0
-    assert gap < 100.0
+    # Same connection-lane object: exact arc-length distance, not the
+    # polar-angle/avg_radius estimate — v2.position(20.0) - v1.position(0.0)
+    # - (half of each vehicle's length, 2.0+2.0).
+    assert gap == 16.0
+
+
+def test_find_leader_roundabout_cross_lane_object_uses_angular_estimate() -> None:
+    """Regression: two vehicles on DIFFERENT connection-lane objects (same
+    circulating lane index) must still use the polar-angle/avg_radius
+    estimate — this fix only changes the exact-same-Lane-object case above,
+    not this cross-lane-object path."""
+    import math
+
+    from src.roads.network import RoadNetwork
+
+    network = RoadNetwork()
+    network.is_roundabout = True
+    network.inner_radius = 10.0
+    network.outer_radius = 20.0
+
+    # Ego's current lane: a straight 2-waypoint lane starting at (15, 0),
+    # i.e. theta_self = atan2(0, 15) = 0.
+    lane_a = Lane("conn_n_0_straight", 15.0, 0.0, -15.0, 0.0)
+    vehicle = Vehicle("ego", 4.0, 2.0, 10.0, [lane_a], start_position=0.0)
+    vehicle.lane = lane_a
+
+    # Candidate's lane: a DIFFERENT Lane object, same lane index (0), whose
+    # start is at (0, 15), i.e. theta_v = atan2(15, 0) = pi/2.
+    lane_b = Lane("conn_e_0_straight", 0.0, 15.0, 0.0, -15.0)
+    candidate = Vehicle("other", 4.0, 2.0, 10.0, [lane_b], start_position=0.0)
+    candidate.lane = lane_b
+
+    leader, gap = find_leader(
+        vehicle, network=network, active_vehicles=[vehicle, candidate]
+    )
+
+    assert leader is candidate
+    # avg_radius = (10+20)/2 = 15.0; diff = pi/2 - 0 = pi/2;
+    # arc_dist = 15.0 * pi/2; gap = arc_dist - (2.0+2.0).
+    expected_gap = 15.0 * (math.pi / 2.0) - 4.0
+    assert gap == pytest.approx(expected_gap, abs=1e-9)

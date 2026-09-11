@@ -145,23 +145,32 @@ def find_leader(
                 except (ValueError, IndexError):
                     pass
 
-                v_x, v_y = v.coords
-                theta_v = math.atan2(v_y, v_x)
+                if v.lane is vehicle.lane:
+                    # Exact arc-length distance: vehicle.position/v.position
+                    # already share the same coordinate system on the
+                    # identical connection-lane object, so no polar-angle/
+                    # avg_radius estimate is needed (or as precise) here.
+                    v_dist = dist_to_lane_start + (v.position - vehicle.position)
+                else:
+                    v_x, v_y = v.coords
+                    theta_v = math.atan2(v_y, v_x)
 
-                # Counter-clockwise angular distance from theta_self to theta_v
-                diff = (theta_v - theta_self) % (2 * math.pi)
+                    # Counter-clockwise angular distance from theta_self to theta_v
+                    diff = (theta_v - theta_self) % (2 * math.pi)
 
-                # Only consider vehicles that are actually ahead of us in forward circular flow (within 180 degrees)
-                if 0.0 < diff <= math.pi:
+                    # Only consider vehicles that are actually ahead of us in forward circular flow (within 180 degrees)
+                    if not (0.0 < diff <= math.pi):
+                        continue
+
                     arc_dist = avg_radius * diff
                     v_dist = dist_to_lane_start + arc_dist
 
-                    if v_dist > 0:
-                        gap = v_dist - (vehicle.length / 2.0 + v.length / 2.0)
-                        gap = max(0.0, gap)
-                        if gap < best_gap:
-                            best_gap = gap
-                            best_leader = v
+                if v_dist > 0:
+                    gap = v_dist - (vehicle.length / 2.0 + v.length / 2.0)
+                    gap = max(0.0, gap)
+                    if gap < best_gap:
+                        best_gap = gap
+                        best_leader = v
         else:
             # Scan vehicles on this lane
             for v in lane.get_vehicles():
