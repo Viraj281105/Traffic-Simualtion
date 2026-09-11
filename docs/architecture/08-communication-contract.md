@@ -135,22 +135,24 @@ All endpoints are prefixed with a version identifier:
 ```
 
 > **Audited 2026-09-11 against `backend/src/main.py`:** the response
-> currently returns only `simulationId`, `configId`, and `status`.
-> `createdAt` and `config` are not in the response body today, even though
-> a creation timestamp is tracked internally. They remain desired future
-> additions (purely additive — no existing field would change), not
-> current behavior.
+> returns `simulationId`, `configId`, and `status`, plus `createdAt` (the
+> simulation's existing creation timestamp, in the API's UTC-`Z`
+> convention — see §6.1) and `config`. `config` is the exact configuration
+> dict this simulation was constructed from — including a `randomSeed`
+> filled in by the vehicle spawner when the request omitted one — not a
+> defaults-filled/schema-resolved configuration; there is no such
+> resolution step in this endpoint.
 
 **Response (201 Created — current):**
 ```json
 {
   "simulationId": "sim_a1b2c3d4",
   "configId": "cfg_e5f6g7h8",
-  "status": "initialized"
+  "status": "initialized",
+  "createdAt": "2026-07-23T14:30:00.000Z",
+  "config": { "...the exact configuration used to construct the simulation...": "..." }
 }
 ```
-
-**Planned/future (not implemented):** `createdAt` (ISO timestamp) and `config` (the resolved configuration, defaults applied) added to the same response.
 
 ---
 
@@ -640,7 +642,6 @@ of them are scheduled or decided, only identified:
 
 | Item | Where discussed | Current state |
 |------|------------------|----------------|
-| `createdAt` / `config` on create-simulation response | §3.3 | Not implemented |
 | `progress` / `currentTick` / `totalTicks` / `elapsedTime` / `totalTime` on status response | §3.4 | Not implemented |
 | `GET /api/v1/simulations` (list) | §3.7 | Not implemented |
 | Structured `422` error envelope matching §6.1 | §6.1 | Not implemented; current shape is FastAPI's default and is relied on by an existing test |
