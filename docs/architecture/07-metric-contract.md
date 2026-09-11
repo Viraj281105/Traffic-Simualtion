@@ -385,6 +385,8 @@ Where:
 
 For 2 lanes per approach: $A = (2 \times 2 \times 3.5) \times (2 \times 2 \times 3.5) = 14 \times 14 = 196 \text{ m}^2$
 
+> **Note on asymmetric lane counts:** this formula assumes $n_{\text{NS}}$ and $n_{\text{EW}}$ are known per direction. The versioned configuration contract currently only supports a single scalar `lanesPerApproach` shared by all four approaches (see [06-scenario-configuration-contract.md](06-scenario-configuration-contract.md#24-roads--road-configuration)), in which case $n_{\text{NS}} = n_{\text{EW}} = 2 \times \text{lanesPerApproach}$ and this formula matches `calculate_space_footprint_consumed()`. Per-direction asymmetric lane counts are accepted only by the internal live-dashboard representation, where `calculate_space_footprint_consumed()` instead approximates the area from the largest single approach rather than applying this formula. Reconciling this formula with true per-direction asymmetry is planned future work, contingent on asymmetric lanes becoming an officially supported configuration (see the note above).
+
 **Roundabout:**
 
 The footprint is the area of the outer circle:

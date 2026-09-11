@@ -14,10 +14,12 @@ The request body is a scenario object. A minimal valid example is:
   "roads": {
     "approachLength": 200,
     "laneWidth": 3.5,
-    "lanesPerApproach": { "north": 2, "south": 2, "east": 2, "west": 2 }
+    "lanesPerApproach": 2
   }
 }
 ```
+
+`roads.lanesPerApproach` on the versioned routes is a single integer applied to all four approaches (see `shared/schemas/config.schema.json`). Per-direction lane counts (`{"north": 2, "south": 2, ...}`) are not yet accepted by `POST /api/v1/configs/validate` or `POST /api/v1/simulations` — that object form is currently only produced internally by the legacy live dashboard routes (see [06-scenario-configuration-contract.md](architecture/06-scenario-configuration-contract.md#24-roads--road-configuration)).
 
 Validate it with `POST /api/v1/configs/validate`, then create it with `POST /api/v1/simulations`. The response contains `simulationId`, `configId`, and `status`. Use the returned ID with:
 
