@@ -1,5 +1,6 @@
 import asyncio
 import contextvars
+import copy
 import csv
 import io
 import json
@@ -774,7 +775,7 @@ class _LiveSession:
     """Per-client container for what used to be the three global variables."""
 
     def __init__(self) -> None:
-        self.current_live_config: Dict[str, Any] = DEFAULT_CONFIG.copy()
+        self.current_live_config: Dict[str, Any] = copy.deepcopy(DEFAULT_CONFIG)
         self.is_user_defined_seed: bool = False
         self.live_sim_data: Dict[str, Any] = {
             "engine": None,
