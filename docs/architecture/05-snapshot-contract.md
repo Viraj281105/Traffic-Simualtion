@@ -151,7 +151,7 @@ Real-time metric values computed up to the current tick. All values are cumulati
 | 7 | `totalStops` | `integer` | ✅ | Total number of stops across all vehicles | — | `87` |
 | 8 | `averageStopsPerVehicle` | `number` | ✅ | Mean stop count per vehicle | — | `2.07` |
 | 9 | `speedVarianceIndex` | `number` | ✅ | Coefficient of variation of vehicle speeds | dimensionless | `0.45` |
-| 10 | `travelTimeReliability` | `number` | ✅ | Planning Time Index (95th percentile / median travel time) | dimensionless | `1.8` |
+| 10 | `travelTimeReliability` | `number \| null` | ✅ | Planning Time Index (95th percentile / median travel time); `null` when the median travel time sample is zero/invalid | dimensionless | `1.8` |
 | 11 | `idleOpportunityLoss` | `number` | ✅ | Fraction of time the intersection has no demand but restricts movement | dimensionless (0-1) | `0.12` |
 | 12 | `directionalFairnessIndex` | `number` | ✅ | Jain's Fairness Index across approach directions | dimensionless (0-1) | `0.85` |
 | 13 | `activeVehicleCount` | `integer` | ✅ | Number of vehicles currently in the simulation | — | `18` |

@@ -1073,7 +1073,9 @@ def update_simulation_config(payload: Dict[str, Any]) -> Dict[str, Any]:
                 # the initial (pre-update) dashboard state used the paired
                 # NS/EW-green model. The compact dashboard form has no
                 # phaseSequence field of its own to override this with.
-                "phaseSequence": DEFAULT_CONFIG["controller"]["phaseSequence"],
+                "phaseSequence": copy.deepcopy(
+                    DEFAULT_CONFIG["controller"]["phaseSequence"]
+                ),
             }
             if payload.get("intersectionType", "fixed_time_signal")
             == "fixed_time_signal"
@@ -1091,7 +1093,7 @@ def update_simulation_config(payload: Dict[str, Any]) -> Dict[str, Any]:
             "criticalGap": float(payload.get("criticalGap", 4.0)),
             "followUpTime": float(payload.get("followUpTime", 2.5)),
         },
-        "vehicleGeneration": DEFAULT_CONFIG["vehicleGeneration"],
+        "vehicleGeneration": copy.deepcopy(DEFAULT_CONFIG["vehicleGeneration"]),
     }
 
     # Reset live simulation cache

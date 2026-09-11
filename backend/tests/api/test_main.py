@@ -182,3 +182,71 @@ def test_live_session_nested_config_isolation() -> None:
         "randomSeed"
         not in subsequent_session.current_live_config["simulation"]
     )
+
+
+def test_update_simulation_config_nested_config_isolation() -> None:
+    """Regression test: update_simulation_config() (the /api/simulation/config
+    handler) previously copied DEFAULT_CONFIG's nested `phaseSequence` list and
+    `vehicleGeneration` dict into the live config by reference rather than by
+    value. That was dormant (nothing mutated either structure in place at the
+    time), but it is the same class of cross-session leak _LiveSession's own
+    deepcopy fix (above) already guards against elsewhere. Verify both nested
+    structures are now independently owned per config-update call, so mutating
+    one session's live config can never pollute DEFAULT_CONFIG or a different
+    session's config."""
+    import copy as copy_module
+
+    from src.main import (
+        DEFAULT_CONFIG,
+        _get_or_create_session,
+        _live_session_var,
+        update_simulation_config,
+    )
+
+    original_phase_sequence = copy_module.deepcopy(
+        DEFAULT_CONFIG["controller"]["phaseSequence"]
+    )
+    original_vehicle_generation = copy_module.deepcopy(
+        DEFAULT_CONFIG["vehicleGeneration"]
+    )
+
+    # 1. Build two independent sessions' live configs via the real endpoint
+    # function, simulating two different clients each updating their own
+    # fixed-time-signal configuration.
+    session_a = _get_or_create_session("test-session-isolation-a")
+    token_a = _live_session_var.set(session_a)
+    try:
+        update_simulation_config({"intersectionType": "fixed_time_signal"})
+    finally:
+        _live_session_var.reset(token_a)
+
+    session_b = _get_or_create_session("test-session-isolation-b")
+    token_b = _live_session_var.set(session_b)
+    try:
+        update_simulation_config({"intersectionType": "fixed_time_signal"})
+    finally:
+        _live_session_var.reset(token_b)
+
+    phase_a = session_a.current_live_config["controller"]["phaseSequence"]
+    phase_b = session_b.current_live_config["controller"]["phaseSequence"]
+    veh_gen_a = session_a.current_live_config["vehicleGeneration"]
+    veh_gen_b = session_b.current_live_config["vehicleGeneration"]
+
+    # 2. Neither session's nested structures may be the same object as
+    # DEFAULT_CONFIG's, nor as each other's.
+    assert phase_a is not DEFAULT_CONFIG["controller"]["phaseSequence"]
+    assert phase_b is not DEFAULT_CONFIG["controller"]["phaseSequence"]
+    assert phase_a is not phase_b
+    assert veh_gen_a is not DEFAULT_CONFIG["vehicleGeneration"]
+    assert veh_gen_b is not DEFAULT_CONFIG["vehicleGeneration"]
+    assert veh_gen_a is not veh_gen_b
+
+    # 3. Mutating session A's nested structures in place must not leak into
+    # DEFAULT_CONFIG or into session B's independently-built config.
+    phase_a.append("mutated-phase")
+    veh_gen_a["injected"] = "leak"
+
+    assert DEFAULT_CONFIG["controller"]["phaseSequence"] == original_phase_sequence
+    assert DEFAULT_CONFIG["vehicleGeneration"] == original_vehicle_generation
+    assert "mutated-phase" not in phase_b
+    assert "injected" not in veh_gen_b
