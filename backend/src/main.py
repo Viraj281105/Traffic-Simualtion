@@ -8,6 +8,7 @@ import logging
 import os
 import random
 import secrets
+import threading
 import time
 import uuid
 from datetime import datetime, timezone
@@ -204,12 +205,14 @@ except (OSError, json.JSONDecodeError) as exc:
 # ── Global State for Multi-Vehicle Simulations ──────────────────────────────
 # Dict mapping simulation_id -> { "engine": SimulationEngine, "collector": MetricCollector, "controller": Any }
 simulations_db: Dict[str, Dict[str, Any]] = {}
+simulations_lock: threading.RLock = threading.RLock()
 
 
 def _get_simulation_or_404(sim_id: str) -> Dict[str, Any]:
-    if sim_id not in simulations_db:
-        raise HTTPException(status_code=404, detail="Simulation not found")
-    return simulations_db[sim_id]
+    with simulations_lock:
+        if sim_id not in simulations_db:
+            raise HTTPException(status_code=404, detail="Simulation not found")
+        return simulations_db[sim_id]
 
 
 def _iso_timestamp(epoch_seconds: float) -> str:
@@ -405,19 +408,20 @@ def _evict_completed_simulations() -> None:
 
     Never evicts a RUNNING or PAUSED simulation.
     """
-    if len(simulations_db) < MAX_CONCURRENT_SIMULATIONS:
-        return
+    with simulations_lock:
+        if len(simulations_db) < MAX_CONCURRENT_SIMULATIONS:
+            return
 
-    evictable = [
-        (sid, entry)
-        for sid, entry in simulations_db.items()
-        if entry["engine"].status in (SimulationStatus.COMPLETED, SimulationStatus.ERROR)
-    ]
-    evictable.sort(key=lambda item: item[1].get("created_at", 0.0))
+        evictable = [
+            (sid, entry)
+            for sid, entry in simulations_db.items()
+            if entry["engine"].status in (SimulationStatus.COMPLETED, SimulationStatus.ERROR)
+        ]
+        evictable.sort(key=lambda item: item[1].get("created_at", 0.0))
 
-    slots_needed = len(simulations_db) - MAX_CONCURRENT_SIMULATIONS + 1
-    for sid, _ in evictable[:slots_needed]:
-        del simulations_db[sid]
+        slots_needed = len(simulations_db) - MAX_CONCURRENT_SIMULATIONS + 1
+        for sid, _ in evictable[:slots_needed]:
+            del simulations_db[sid]
 
 
 @app.post(
@@ -432,12 +436,6 @@ def create_simulation(config: Dict[str, Any]) -> Dict[str, Any]:
     except jsonschema.ValidationError as err:
         raise HTTPException(
             status_code=400, detail=f"Invalid configuration: {err.message}"
-        )
-
-    _evict_completed_simulations()
-    if len(simulations_db) >= MAX_CONCURRENT_SIMULATIONS:
-        raise HTTPException(
-            status_code=429, detail="Maximum concurrent simulations reached"
         )
 
     sim_id = str(uuid.uuid4())
@@ -482,14 +480,20 @@ def create_simulation(config: Dict[str, Any]) -> Dict[str, Any]:
     )
 
     created_at = time.time()
-    simulations_db[sim_id] = {
-        "engine": engine,
-        "collector": collector,
-        "controller": controller,
-        "config_id": config_id,
-        "buffer": buffer,
-        "created_at": created_at,
-    }
+    with simulations_lock:
+        _evict_completed_simulations()
+        if len(simulations_db) >= MAX_CONCURRENT_SIMULATIONS:
+            raise HTTPException(
+                status_code=429, detail="Maximum concurrent simulations reached"
+            )
+        simulations_db[sim_id] = {
+            "engine": engine,
+            "collector": collector,
+            "controller": controller,
+            "config_id": config_id,
+            "buffer": buffer,
+            "created_at": created_at,
+        }
 
     return {
         "simulationId": sim_id,
@@ -506,14 +510,17 @@ def delete_simulation(sim_id: str) -> Dict[str, Any]:
 
     Refuses to delete a RUNNING/PAUSED simulation — stop it first.
     """
-    sim = _get_simulation_or_404(sim_id)
-    engine = sim["engine"]
-    if engine.status in (SimulationStatus.RUNNING, SimulationStatus.PAUSED):
-        raise HTTPException(
-            status_code=400,
-            detail="Cannot delete a running or paused simulation; stop it first.",
-        )
-    del simulations_db[sim_id]
+    with simulations_lock:
+        if sim_id not in simulations_db:
+            raise HTTPException(status_code=404, detail="Simulation not found")
+        sim = simulations_db[sim_id]
+        engine = sim["engine"]
+        if engine.status in (SimulationStatus.RUNNING, SimulationStatus.PAUSED):
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot delete a running or paused simulation; stop it first.",
+            )
+        del simulations_db[sim_id]
     return {"status": "deleted", "simulationId": sim_id}
 
 
