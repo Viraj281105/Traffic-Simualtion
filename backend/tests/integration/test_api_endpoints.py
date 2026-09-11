@@ -187,7 +187,7 @@ def _lifecycle_config() -> Dict[str, Any]:
     }
 
 
-def test_create_simulation_response_includes_createdAt_and_config() -> None:
+def test_create_simulation_response_includes_created_at_and_config() -> None:
     """POST /api/v1/simulations: createdAt and config are additive fields
     (docs/architecture/08-communication-contract.md §3.3). Existing fields
     (simulationId/configId/status) must be unchanged, and the new fields
