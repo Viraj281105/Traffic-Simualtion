@@ -134,3 +134,63 @@ def test_vehicle_pool_collision_debounced_across_ticks() -> None:
     vb.position = 5.5
     pool._collision_audit()
     assert pool.collision_count == 2
+
+
+def test_collision_audit_flags_different_lane_index_conn_pairs() -> None:
+    """Regression for the collision-audit "parallel lane" skip bug: two
+    conn_* vehicles from the same origin but a DIFFERENT circulating lane
+    index are a genuine cross-lane-index roundabout weave conflict — the
+    exact case router.find_leader's Layer 4 is responsible for catching —
+    and must remain eligible for this audit, not be skipped as merely
+    "parallel". Same coordinates as test_vehicle_pool_collision_audit_
+    separation's proven-overlapping pair, just with conn_* lane ids."""
+    lane_a = Lane("conn_n_0_straight", 0.0, 0.0, 10.0, 0.0)
+    lane_b = Lane("conn_n_1_left", 5.0, -5.0, 5.0, 5.0)
+
+    va = Vehicle("va", 4.0, 2.0, 5.0, [lane_a], start_position=5.0, initial_speed=5.0)
+    vb = Vehicle("vb", 4.0, 2.0, 2.0, [lane_b], start_position=5.5, initial_speed=2.0)
+
+    pool = VehiclePool()
+    pool.add_vehicle(va)
+    pool.add_vehicle(vb)
+    pool._collision_audit()
+
+    assert pool.collision_count == 1
+    assert vb.speed == 0.0
+
+
+def test_collision_audit_still_skips_same_lane_index_conn_pairs() -> None:
+    """Two conn_* lanes from the same origin AND the same circulating lane
+    index (different turn intents) are one continuous physical path per
+    Layer 1's same-lane-index following (router.find_leader) — they must
+    stay grouped/skipped by the audit, exactly as before this fix."""
+    lane_a = Lane("conn_n_0_straight", 0.0, 0.0, 10.0, 0.0)
+    lane_b = Lane("conn_n_0_left", 5.0, -5.0, 5.0, 5.0)
+
+    va = Vehicle("va", 4.0, 2.0, 5.0, [lane_a], start_position=5.0, initial_speed=5.0)
+    vb = Vehicle("vb", 4.0, 2.0, 2.0, [lane_b], start_position=5.5, initial_speed=2.0)
+
+    pool = VehiclePool()
+    pool.add_vehicle(va)
+    pool.add_vehicle(vb)
+    pool._collision_audit()
+
+    assert pool.collision_count == 0
+
+
+def test_collision_audit_still_skips_ordinary_parallel_lanes() -> None:
+    """Ordinary same-direction parallel approach lanes (e.g. n_in_0 vs
+    n_in_1) must retain their existing skip — this fix only changes how
+    conn_* lanes are grouped, not the plain-direction branch."""
+    lane_a = Lane("n_in_0", 0.0, 0.0, 10.0, 0.0)
+    lane_b = Lane("n_in_1", 5.0, -5.0, 5.0, 5.0)
+
+    va = Vehicle("va", 4.0, 2.0, 5.0, [lane_a], start_position=5.0, initial_speed=5.0)
+    vb = Vehicle("vb", 4.0, 2.0, 2.0, [lane_b], start_position=5.5, initial_speed=2.0)
+
+    pool = VehiclePool()
+    pool.add_vehicle(va)
+    pool.add_vehicle(vb)
+    pool._collision_audit()
+
+    assert pool.collision_count == 0

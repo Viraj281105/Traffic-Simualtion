@@ -12,7 +12,7 @@ import math
 from typing import Any, Dict, FrozenSet, List, Optional, Set, Tuple
 
 from src.core.enums import Direction, TurnIntent, VehicleState
-from src.vehicles.router import find_leader
+from src.vehicles.router import _conn_lane_index, find_leader
 from src.vehicles.vehicle import Vehicle
 
 logger = logging.getLogger(__name__)
@@ -240,7 +240,21 @@ class VehiclePool:
                 def get_dir(lane_id: str) -> str:
                     lid = lane_id.lower()
                     if lid.startswith("conn_"):
-                        return lid.split("_")[1][0]
+                        # Group by (origin, circulating lane index), not
+                        # origin alone: two conn_ lanes from the same
+                        # origin but different lane index (e.g.
+                        # conn_n_0_straight vs conn_n_1_left) are a real
+                        # cross-lane-index roundabout weave conflict —
+                        # exactly what router.find_leader's Layer 4 is
+                        # responsible for catching — and must remain
+                        # eligible for this audit, not be skipped as if
+                        # merely "parallel". Same origin *and* same lane
+                        # index (regardless of turn intent) genuinely are
+                        # one continuous physical path (see Layer 1's
+                        # same-lane-index following), so those still group
+                        # together and stay skipped here.
+                        origin = lid.split("_")[1][0] if "_" in lid else lid
+                        return f"{origin}{_conn_lane_index(lid)}"
                     if lid and lid[0] in ("n", "s", "e", "w"):
                         return lid[0]
                     return lane_id
