@@ -113,6 +113,7 @@ def run_statistical_validation(
             orchestrator.engine_signal.spawner.spawned_count
             if orchestrator.engine_signal.spawner
             else 0,
+            orchestrator.engine_signal.pool.collision_count,
         )
 
         elapsed_round = orchestrator.clock_roundabout.get_elapsed_time()
@@ -123,6 +124,7 @@ def run_statistical_validation(
             orchestrator.engine_roundabout.spawner.spawned_count
             if orchestrator.engine_roundabout.spawner
             else 0,
+            orchestrator.engine_roundabout.pool.collision_count,
         )
 
         d_sig = m_sig.get("averageDelay", m_sig.get("averageWaitTime", 0.0))
@@ -256,6 +258,7 @@ def run_invariant_checks(
         orchestrator1.engine_signal.spawner.spawned_count
         if orchestrator1.engine_signal.spawner
         else 0,
+        orchestrator1.engine_signal.pool.collision_count,
     )
     m2_s = orchestrator2.collector_signal.get_metrics(
         duration,
@@ -264,6 +267,7 @@ def run_invariant_checks(
         orchestrator2.engine_signal.spawner.spawned_count
         if orchestrator2.engine_signal.spawner
         else 0,
+        orchestrator2.engine_signal.pool.collision_count,
     )
 
     is_deterministic = m1_s.get("averageDelay") == m2_s.get(

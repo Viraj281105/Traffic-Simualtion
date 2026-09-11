@@ -107,3 +107,78 @@ def test_generate_random_seed_does_not_consume_shared_global_random_state() -> N
         actual_sequence.append(random_module.random())
 
     assert actual_sequence == expected_sequence
+
+
+def test_live_session_nested_config_isolation() -> None:
+    """Regression test: verify that _LiveSession receives an isolated deep copy
+    of DEFAULT_CONFIG so that mutating nested configuration (e.g. injecting an
+    auto-generated randomSeed during simulation initialization) does not leak
+    into DEFAULT_CONFIG or other sessions."""
+    from src.main import DEFAULT_CONFIG, _LiveSession
+    from src.roads.network import RoadNetwork
+    from src.vehicles.spawner import VehicleSpawner
+
+    # 1. Initialize two fresh sessions without explicit configuration
+    session1 = _LiveSession()
+    session2 = _LiveSession()
+
+    # 2. Verify nested configs are distinct objects (independent)
+    assert session1.current_live_config is not DEFAULT_CONFIG
+    assert session2.current_live_config is not DEFAULT_CONFIG
+    assert session1.current_live_config is not session2.current_live_config
+
+    assert (
+        session1.current_live_config["simulation"]
+        is not session2.current_live_config["simulation"]
+    )
+    assert (
+        session1.current_live_config["simulation"]
+        is not DEFAULT_CONFIG["simulation"]
+    )
+    assert (
+        session2.current_live_config["simulation"]
+        is not DEFAULT_CONFIG["simulation"]
+    )
+
+    assert (
+        session1.current_live_config["controller"]
+        is not session2.current_live_config["controller"]
+    )
+    assert (
+        session1.current_live_config["vehicleGeneration"]
+        is not session2.current_live_config["vehicleGeneration"]
+    )
+
+    # 3. Mutate nested simulation config in session1
+    session1.current_live_config["simulation"]["randomSeed"] = 99999
+    session1.current_live_config["simulation"]["duration"] = 12345.0
+
+    # 4. Verify session2 and DEFAULT_CONFIG remain completely unmutated
+    assert "randomSeed" not in DEFAULT_CONFIG["simulation"]
+    assert "randomSeed" not in session2.current_live_config["simulation"]
+    assert DEFAULT_CONFIG["simulation"]["duration"] == 600
+    assert session2.current_live_config["simulation"]["duration"] == 600
+
+    # 5. Verify that VehicleSpawner mutating simulation config does not pollute DEFAULT_CONFIG
+    network = RoadNetwork()
+    spawner_session = _LiveSession()
+    assert "randomSeed" not in spawner_session.current_live_config["simulation"]
+    assert "randomSeed" not in DEFAULT_CONFIG["simulation"]
+
+    # Spawner runs without pre-set randomSeed and generates one into its config dict
+    spawner = VehicleSpawner(spawner_session.current_live_config, network)
+    generated_seed = spawner_session.current_live_config["simulation"].get(
+        "randomSeed"
+    )
+    assert generated_seed is not None
+    assert generated_seed == spawner.random_seed
+
+    # Global DEFAULT_CONFIG must remain unpolluted
+    assert "randomSeed" not in DEFAULT_CONFIG["simulation"]
+
+    # A subsequent fresh session must also be unpolluted
+    subsequent_session = _LiveSession()
+    assert (
+        "randomSeed"
+        not in subsequent_session.current_live_config["simulation"]
+    )

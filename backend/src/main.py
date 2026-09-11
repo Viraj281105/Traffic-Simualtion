@@ -1,5 +1,6 @@
 import asyncio
 import contextvars
+import copy
 import csv
 import io
 import json
@@ -7,6 +8,7 @@ import logging
 import os
 import random
 import secrets
+import threading
 import time
 import uuid
 from datetime import datetime, timezone
@@ -203,12 +205,14 @@ except (OSError, json.JSONDecodeError) as exc:
 # ── Global State for Multi-Vehicle Simulations ──────────────────────────────
 # Dict mapping simulation_id -> { "engine": SimulationEngine, "collector": MetricCollector, "controller": Any }
 simulations_db: Dict[str, Dict[str, Any]] = {}
+simulations_lock: threading.RLock = threading.RLock()
 
 
 def _get_simulation_or_404(sim_id: str) -> Dict[str, Any]:
-    if sim_id not in simulations_db:
-        raise HTTPException(status_code=404, detail="Simulation not found")
-    return simulations_db[sim_id]
+    with simulations_lock:
+        if sim_id not in simulations_db:
+            raise HTTPException(status_code=404, detail="Simulation not found")
+        return simulations_db[sim_id]
 
 
 def _iso_timestamp(epoch_seconds: float) -> str:
@@ -351,16 +355,20 @@ def create_simulation_v2(payload: ScenarioConfiguration) -> Dict[str, Any]:
 
 
 def _persist_completed_run(
-    sim_id: str, config: Dict[str, Any], engine: SimulationEngine, collector: MetricCollector
+    sim_id: str,
+    config: Dict[str, Any],
+    engine: SimulationEngine,
+    collector: MetricCollector,
+    status: str = "completed",
 ) -> None:
-    """Records a completed (or stopped) simulation into simulation_runs.
+    """Records a completed, stopped, or errored simulation into simulation_runs.
 
     Reads the random seed straight from the spawner — the single
     authoritative place a seed is resolved (see VehicleSpawner.__init__) —
     so the persisted seed is always the exact one actually used, whether it
     was user-supplied or auto-generated. Any failure here is logged and
     swallowed rather than propagated, so a database hiccup can never flip an
-    otherwise-successful simulation into an error state.
+    otherwise-successful simulation into an error state or mask a simulation failure.
     """
     try:
         itype = config.get("geometry", {}).get("intersectionType", "unknown")
@@ -371,18 +379,26 @@ def _persist_completed_run(
         )
         arrival_rate = config.get("traffic", {}).get("arrivalRate", 0.5)
         elapsed = engine.clock.get_elapsed_time()
-        final_metrics = collector.get_metrics(
-            elapsed,
-            engine.pool.active_vehicles,
-            engine.pool.exited_vehicles,
-            engine.spawner.spawned_count if engine.spawner else 0,
-            engine.pool.collision_count,
-        )
+        try:
+            final_metrics = collector.get_metrics(
+                elapsed,
+                engine.pool.active_vehicles,
+                engine.pool.exited_vehicles,
+                engine.spawner.spawned_count if engine.spawner else 0,
+                engine.pool.collision_count,
+            )
+        except Exception:
+            logger.exception(
+                "Failed to calculate metrics for simulation %s with status %s",
+                sim_id,
+                status,
+            )
+            final_metrics = {}
         with get_db_connection() as conn:
             SimulationRunDAO.save(
                 conn,
                 sim_id,
-                "completed",
+                status,
                 elapsed,
                 intersection_type=itype,
                 random_seed=seed,
@@ -404,19 +420,20 @@ def _evict_completed_simulations() -> None:
 
     Never evicts a RUNNING or PAUSED simulation.
     """
-    if len(simulations_db) < MAX_CONCURRENT_SIMULATIONS:
-        return
+    with simulations_lock:
+        if len(simulations_db) < MAX_CONCURRENT_SIMULATIONS:
+            return
 
-    evictable = [
-        (sid, entry)
-        for sid, entry in simulations_db.items()
-        if entry["engine"].status in (SimulationStatus.COMPLETED, SimulationStatus.ERROR)
-    ]
-    evictable.sort(key=lambda item: item[1].get("created_at", 0.0))
+        evictable = [
+            (sid, entry)
+            for sid, entry in simulations_db.items()
+            if entry["engine"].status in (SimulationStatus.COMPLETED, SimulationStatus.ERROR)
+        ]
+        evictable.sort(key=lambda item: item[1].get("created_at", 0.0))
 
-    slots_needed = len(simulations_db) - MAX_CONCURRENT_SIMULATIONS + 1
-    for sid, _ in evictable[:slots_needed]:
-        del simulations_db[sid]
+        slots_needed = len(simulations_db) - MAX_CONCURRENT_SIMULATIONS + 1
+        for sid, _ in evictable[:slots_needed]:
+            del simulations_db[sid]
 
 
 @app.post(
@@ -431,12 +448,6 @@ def create_simulation(config: Dict[str, Any]) -> Dict[str, Any]:
     except jsonschema.ValidationError as err:
         raise HTTPException(
             status_code=400, detail=f"Invalid configuration: {err.message}"
-        )
-
-    _evict_completed_simulations()
-    if len(simulations_db) >= MAX_CONCURRENT_SIMULATIONS:
-        raise HTTPException(
-            status_code=429, detail="Maximum concurrent simulations reached"
         )
 
     sim_id = str(uuid.uuid4())
@@ -469,26 +480,51 @@ def create_simulation(config: Dict[str, Any]) -> Dict[str, Any]:
         build_tick_callback(controller, clock, engine, collector, buffer, builder)
     )
     # Persist to run history the moment the simulation completes (naturally
-    # or via an explicit stop) — the single existing "run-save flow" this
-    # extends to cover ordinary /api/v1/simulations runs, not just sweeps
-    # and manually-saved replays.
-    engine.register_status_callback(
-        lambda new_status: (
-            _persist_completed_run(sim_id, config, engine, collector)
-            if new_status == SimulationStatus.COMPLETED
-            else None
-        )
-    )
+    # or via an explicit stop) or terminates in an error state — the single
+    # existing "run-save flow" this extends to cover ordinary /api/v1/simulations
+    # runs, not just sweeps and manually-saved replays.
+    has_persisted = False
+    persist_lock = threading.Lock()
+
+    def _on_status_change(new_status: SimulationStatus) -> None:
+        nonlocal has_persisted
+        if new_status in (SimulationStatus.COMPLETED, SimulationStatus.ERROR):
+            with persist_lock:
+                if has_persisted:
+                    return
+                has_persisted = True
+            try:
+                _persist_completed_run(
+                    sim_id,
+                    config,
+                    engine,
+                    collector,
+                    status=new_status.value.lower(),
+                )
+            except Exception:
+                logger.exception(
+                    "Failed to persist simulation run %s on status transition %s",
+                    sim_id,
+                    new_status,
+                )
+
+    engine.register_status_callback(_on_status_change)
 
     created_at = time.time()
-    simulations_db[sim_id] = {
-        "engine": engine,
-        "collector": collector,
-        "controller": controller,
-        "config_id": config_id,
-        "buffer": buffer,
-        "created_at": created_at,
-    }
+    with simulations_lock:
+        _evict_completed_simulations()
+        if len(simulations_db) >= MAX_CONCURRENT_SIMULATIONS:
+            raise HTTPException(
+                status_code=429, detail="Maximum concurrent simulations reached"
+            )
+        simulations_db[sim_id] = {
+            "engine": engine,
+            "collector": collector,
+            "controller": controller,
+            "config_id": config_id,
+            "buffer": buffer,
+            "created_at": created_at,
+        }
 
     return {
         "simulationId": sim_id,
@@ -505,14 +541,17 @@ def delete_simulation(sim_id: str) -> Dict[str, Any]:
 
     Refuses to delete a RUNNING/PAUSED simulation — stop it first.
     """
-    sim = _get_simulation_or_404(sim_id)
-    engine = sim["engine"]
-    if engine.status in (SimulationStatus.RUNNING, SimulationStatus.PAUSED):
-        raise HTTPException(
-            status_code=400,
-            detail="Cannot delete a running or paused simulation; stop it first.",
-        )
-    del simulations_db[sim_id]
+    with simulations_lock:
+        if sim_id not in simulations_db:
+            raise HTTPException(status_code=404, detail="Simulation not found")
+        sim = simulations_db[sim_id]
+        engine = sim["engine"]
+        if engine.status in (SimulationStatus.RUNNING, SimulationStatus.PAUSED):
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot delete a running or paused simulation; stop it first.",
+            )
+        del simulations_db[sim_id]
     return {"status": "deleted", "simulationId": sim_id}
 
 
@@ -774,7 +813,7 @@ class _LiveSession:
     """Per-client container for what used to be the three global variables."""
 
     def __init__(self) -> None:
-        self.current_live_config: Dict[str, Any] = DEFAULT_CONFIG.copy()
+        self.current_live_config: Dict[str, Any] = copy.deepcopy(DEFAULT_CONFIG)
         self.is_user_defined_seed: bool = False
         self.live_sim_data: Dict[str, Any] = {
             "engine": None,
