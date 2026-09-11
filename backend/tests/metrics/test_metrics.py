@@ -178,6 +178,59 @@ def test_travel_time_reliability() -> None:
     assert sample_size_zero == 1
 
 
+def test_travel_time_reliability_null_is_schema_valid() -> None:
+    """Contract regression test: `travelTimeReliability` can genuinely be
+    `null` in MetricCollector's real output (see test_travel_time_reliability
+    above — a zero median travel time is a documented data-error case that
+    must report `null`, not a fabricated PTI). `snapshot.schema.json`
+    previously declared this field as a non-nullable `number` with no
+    `null` variant, which would have rejected this legitimate runtime
+    value. Verify the collector's actual output for this edge case
+    validates against the current schema fragment."""
+    import json
+    from pathlib import Path
+
+    import jsonschema
+
+    config = {
+        "simulation": {"warmupTime": 0.0, "timeStep": 1.0},
+        "vehicleGeneration": {"stopSpeedThreshold": 0.1, "waitSpeedThreshold": 0.5},
+        "geometry": {"intersectionType": "fixed_time_signal"},
+    }
+    collector = MetricCollector(config)
+
+    # spawn_time == exit_time == 0.0 -> median travel time of exactly 0,
+    # so travelTimeReliability must come back null.
+    v_zero_travel_time = DummyVehicle(0.0, 0.0, 0, spawn_time=0.0, exit_time=0.0)
+    metrics = collector.get_metrics(10.0, [], [v_zero_travel_time], total_spawned=1)
+    assert metrics["travelTimeReliability"] is None
+
+    schema_path = (
+        Path(__file__).resolve().parents[3] / "shared" / "schemas" / "snapshot.schema.json"
+    )
+    with open(schema_path, "r", encoding="utf-8") as f:
+        snapshot_schema = json.load(f)
+    metrics_schema = snapshot_schema["properties"]["metrics"]
+
+    # Must not raise: the schema must accept travelTimeReliability=null.
+    jsonschema.validate(instance=metrics, schema=metrics_schema)
+
+    # Sanity check: a normal numeric value must still validate too, so
+    # this isn't passing merely because the field became untyped.
+    metrics_numeric = dict(metrics)
+    metrics_numeric["travelTimeReliability"] = 1.5
+    jsonschema.validate(instance=metrics_numeric, schema=metrics_schema)
+
+    # And an actually-invalid type (e.g. a string) must still be rejected.
+    metrics_invalid = dict(metrics)
+    metrics_invalid["travelTimeReliability"] = "not-a-number"
+    try:
+        jsonschema.validate(instance=metrics_invalid, schema=metrics_schema)
+        assert False, "schema should reject a non-numeric, non-null value"
+    except jsonschema.ValidationError:
+        pass
+
+
 def test_idle_loss() -> None:
     lane_n = DummyLane("n_in_0")
     lane_s = DummyLane("s_in_0")

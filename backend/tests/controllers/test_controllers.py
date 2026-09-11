@@ -301,6 +301,75 @@ def test_fixed_time_signal_phase_sequence_invalid_entry_raises() -> None:
         FixedTimeSignalController(config, network)
 
 
+def test_fixed_time_signal_offset_shifts_initial_phase() -> None:
+    """A non-zero `offset` seeds the controller's phase cursor forward at
+    construction time (reset() calls `_advance_by(offset % total_cycle)`),
+    so two controllers built from the identical phaseSequence/durations but
+    different offsets must actually start the simulation at different
+    points in the signal cycle -- not merely store/parse the offset value.
+
+    Cycle: ["ns_green" (10s), "ew_green" (10s)] -> total duration 20s.
+    """
+    network = RoadNetwork()
+    network.setup_default_intersection(
+        approach_length=100.0, lane_width=3.5, lanes_per_approach=2
+    )
+
+    controller_config = {
+        "straightRightDuration": 10.0,
+        "phaseSequence": ["ns_green", "ew_green"],
+    }
+
+    # No offset: cycle starts at the first configured phase, elapsed 0s.
+    baseline = FixedTimeSignalController({"controller": controller_config}, network)
+    assert baseline.current_phase_idx == 0
+    assert baseline.current_phase.name == "ns_green"
+    assert baseline.current_phase.directions == (Direction.NORTH, Direction.SOUTH)
+    assert baseline.time_in_current_state == 0.0
+
+    # offset == exactly one full phase duration (10s): the controller must
+    # start one phase ahead of the baseline, at 0s elapsed into that phase.
+    offset_10 = FixedTimeSignalController(
+        {"controller": {**controller_config, "offset": 10.0}}, network
+    )
+    assert offset_10.current_phase_idx == 1
+    assert offset_10.current_phase.name == "ew_green"
+    assert offset_10.current_phase.directions == (Direction.EAST, Direction.WEST)
+    assert offset_10.time_in_current_state == 0.0
+    assert offset_10.phase_time_remaining == 10.0
+
+    # A partial-phase offset (14s = one full phase + 4s) must leave a
+    # matching remainder of time_in_current_state within the next phase,
+    # not just snap to the next phase boundary.
+    offset_14 = FixedTimeSignalController(
+        {"controller": {**controller_config, "offset": 14.0}}, network
+    )
+    assert offset_14.current_phase_idx == 1
+    assert offset_14.current_phase.name == "ew_green"
+    assert offset_14.time_in_current_state == 4.0
+    assert offset_14.phase_time_remaining == 6.0
+
+    # offset wraps modulo the total cycle duration (20s): offset=30
+    # (== 20 + 10) must land at exactly the same state as offset=10.
+    offset_30 = FixedTimeSignalController(
+        {"controller": {**controller_config, "offset": 30.0}}, network
+    )
+    assert offset_30.current_phase_idx == offset_10.current_phase_idx
+    assert offset_30.current_phase.name == offset_10.current_phase.name
+    assert offset_30.time_in_current_state == offset_10.time_in_current_state
+
+    # The offset's effect is externally visible through get_state(), which
+    # is what the API/frontend actually observe -- not just internal state.
+    state = offset_10.get_state()
+    assert state["currentPhase"] == "ew_green"
+    assert state["activeDirection"] == "east+west"
+    for sig in state["signals"]:
+        if sig["direction"] in ("east", "west"):
+            assert sig["color"] == "green"
+        else:
+            assert sig["color"] == "red"
+
+
 def test_roundabout_missing_approach_and_yielding_metrics() -> None:
     network = RoadNetwork()
     network.setup_default_intersection(

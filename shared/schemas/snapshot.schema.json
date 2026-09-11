@@ -151,7 +151,7 @@
         "totalStops": { "type": "integer", "minimum": 0 },
         "averageStopsPerVehicle": { "type": "number", "minimum": 0 },
         "speedVarianceIndex": { "type": "number", "minimum": 0 },
-        "travelTimeReliability": { "type": "number", "minimum": 0 },
+        "travelTimeReliability": { "type": ["number", "null"], "minimum": 0 },
         "idleOpportunityLoss": { "type": "number", "minimum": 0, "maximum": 1 },
         "directionalFairnessIndex": { "type": "number", "minimum": 0, "maximum": 1 },
         "activeVehicleCount": { "type": "integer", "minimum": 0 },

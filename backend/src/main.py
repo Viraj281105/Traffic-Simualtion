@@ -1013,86 +1013,123 @@ def update_simulation_config(payload: Dict[str, Any]) -> Dict[str, Any]:
         seed_val = _generate_random_seed()
         session.is_user_defined_seed = False
 
-    # Compile the config dictionary based on user payload
-    session.current_live_config = {
-        "simulation": {
-            "timeStep": DEFAULT_CONFIG["simulation"]["timeStep"],
-            "duration": float(
-                payload.get("duration", DEFAULT_CONFIG["simulation"]["duration"])
+    # Duration must fall within the same bounds the versioned API enforces
+    # via SimulationSection.duration (ge=1, le=3600 — see config_models.py
+    # and config.schema.json). This endpoint builds its config by hand
+    # rather than through Pydantic/CONFIG_SCHEMA, so neither a malformed
+    # value (-> uncaught ValueError -> raw 500) nor an out-of-range one was
+    # previously rejected. Resolve and validate it up front, before it
+    # (and any other malformed numeric field below) can reach that point.
+    raw_duration = payload.get("duration", DEFAULT_CONFIG["simulation"]["duration"])
+    try:
+        duration_val = float(raw_duration)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid duration {raw_duration!r}: must be a number.",
+        ) from exc
+    if not (1.0 <= duration_val <= 3600.0):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Invalid duration {duration_val}: must be between 1 and "
+                "3600 seconds."
             ),
-            "warmupTime": DEFAULT_CONFIG["simulation"]["warmupTime"],
-            "randomSeed": seed_val,
-        },
-        "geometry": {
-            "intersectionType": payload.get("intersectionType", "fixed_time_signal"),
-            "intersectionCenter": {"x": 0.0, "y": 0.0},
-            "boundingRadius": float(payload.get("intersectionSize", 15.0)),
-        },
-        "roads": {
-            "approachLength": 200.0,
-            "laneWidth": float(payload.get("laneWidth", 3.5)),
-            "lanesPerApproach": {
-                "north": int(payload.get("lanesNorth", 2)),
-                "south": int(payload.get("lanesSouth", 2)),
-                "east": int(payload.get("lanesEast", 2)),
-                "west": int(payload.get("lanesWest", 2)),
+        )
+
+    # Compile the config dictionary based on user payload. The remaining
+    # numeric fields are coerced directly from the raw payload (same as
+    # duration above); wrap them the same way create_simulation() already
+    # does for /api/v1/simulations so malformed input is a 400, not a raw
+    # 500 that leaks past the client-facing error envelope.
+    try:
+        session.current_live_config = {
+            "simulation": {
+                "timeStep": DEFAULT_CONFIG["simulation"]["timeStep"],
+                "duration": duration_val,
+                "warmupTime": DEFAULT_CONFIG["simulation"]["warmupTime"],
+                "randomSeed": seed_val,
             },
-        },
-        "traffic": {
-            "arrivalRate": float(payload.get("arrivalRate", 0.5)),
-            "arrivalDistribution": "poisson",
-        },
-        "controller": (
-            {
-                "straightRightDuration": float(
-                    payload.get(
-                        "greenDuration",
-                        DEFAULT_CONFIG["controller"]["straightRightDuration"],
-                    )
+            "geometry": {
+                "intersectionType": payload.get(
+                    "intersectionType", "fixed_time_signal"
                 ),
-                "leftDuration": float(
-                    payload.get(
-                        "leftDuration", DEFAULT_CONFIG["controller"]["leftDuration"]
-                    )
-                ),
-                "yellowDuration": float(
-                    payload.get(
-                        "yellowDuration",
-                        DEFAULT_CONFIG["controller"]["yellowDuration"],
-                    )
-                ),
-                "allRedDuration": float(
-                    payload.get(
-                        "allRedDuration",
-                        DEFAULT_CONFIG["controller"]["allRedDuration"],
-                    )
-                ),
-                # See DEFAULT_CONFIG's phaseSequence comment: without this,
-                # a dashboard config update would silently drop back to the
-                # less realistic one-direction-at-a-time cycle even though
-                # the initial (pre-update) dashboard state used the paired
-                # NS/EW-green model. The compact dashboard form has no
-                # phaseSequence field of its own to override this with.
-                "phaseSequence": DEFAULT_CONFIG["controller"]["phaseSequence"],
-            }
-            if payload.get("intersectionType", "fixed_time_signal")
-            == "fixed_time_signal"
-            else {
-                "innerRadius": 10.0,
-                "outerRadius": 20.0,
-                "circulatingLanes": 1,
+                "intersectionCenter": {"x": 0.0, "y": 0.0},
+                "boundingRadius": float(payload.get("intersectionSize", 15.0)),
+            },
+            "roads": {
+                "approachLength": 200.0,
+                "laneWidth": float(payload.get("laneWidth", 3.5)),
+                "lanesPerApproach": {
+                    "north": int(payload.get("lanesNorth", 2)),
+                    "south": int(payload.get("lanesSouth", 2)),
+                    "east": int(payload.get("lanesEast", 2)),
+                    "west": int(payload.get("lanesWest", 2)),
+                },
+            },
+            "traffic": {
+                "arrivalRate": float(payload.get("arrivalRate", 0.5)),
+                "arrivalDistribution": "poisson",
+            },
+            "controller": (
+                {
+                    "straightRightDuration": float(
+                        payload.get(
+                            "greenDuration",
+                            DEFAULT_CONFIG["controller"]["straightRightDuration"],
+                        )
+                    ),
+                    "leftDuration": float(
+                        payload.get(
+                            "leftDuration",
+                            DEFAULT_CONFIG["controller"]["leftDuration"],
+                        )
+                    ),
+                    "yellowDuration": float(
+                        payload.get(
+                            "yellowDuration",
+                            DEFAULT_CONFIG["controller"]["yellowDuration"],
+                        )
+                    ),
+                    "allRedDuration": float(
+                        payload.get(
+                            "allRedDuration",
+                            DEFAULT_CONFIG["controller"]["allRedDuration"],
+                        )
+                    ),
+                    # See DEFAULT_CONFIG's phaseSequence comment: without
+                    # this, a dashboard config update would silently drop
+                    # back to the less realistic one-direction-at-a-time
+                    # cycle even though the initial (pre-update) dashboard
+                    # state used the paired NS/EW-green model. The compact
+                    # dashboard form has no phaseSequence field of its own
+                    # to override this with.
+                    "phaseSequence": copy.deepcopy(
+                        DEFAULT_CONFIG["controller"]["phaseSequence"]
+                    ),
+                }
+                if payload.get("intersectionType", "fixed_time_signal")
+                == "fixed_time_signal"
+                else {
+                    "innerRadius": 10.0,
+                    "outerRadius": 20.0,
+                    "circulatingLanes": 1,
+                    "criticalGap": float(payload.get("criticalGap", 4.0)),
+                    "followUpTime": float(payload.get("followUpTime", 2.5)),
+                    "entrySpeed": 5.0,
+                    "circulatingSpeed": 8.0,
+                }
+            ),
+            "roundaboutController": {
                 "criticalGap": float(payload.get("criticalGap", 4.0)),
                 "followUpTime": float(payload.get("followUpTime", 2.5)),
-                "entrySpeed": 5.0,
-                "circulatingSpeed": 8.0,
-            }
-        ),
-        "roundaboutController": {
-            "criticalGap": float(payload.get("criticalGap", 4.0)),
-            "followUpTime": float(payload.get("followUpTime", 2.5)),
-        },
-        "vehicleGeneration": DEFAULT_CONFIG["vehicleGeneration"],
-    }
+            },
+            "vehicleGeneration": copy.deepcopy(DEFAULT_CONFIG["vehicleGeneration"]),
+        }
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(
+            status_code=400, detail=f"Invalid configuration: {exc}"
+        ) from exc
 
     # Reset live simulation cache
     session.live_sim_data["engine"] = None

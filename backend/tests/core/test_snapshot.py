@@ -1,5 +1,8 @@
 import json
+import queue
+import threading
 
+from src.controllers.factory import build_tick_callback
 from src.controllers.fixed_time_signal import FixedTimeSignalController
 from src.core.clock import Clock
 from src.core.engine import SimulationEngine
@@ -36,6 +39,150 @@ def test_snapshot_buffer(tmp_path) -> None:
     # Clear
     buf.clear()
     assert len(buf.get_all()) == 0
+
+
+def test_snapshot_buffer_get_all_returns_isolated_snapshot() -> None:
+    """get_all() must return a copy, not the live internal list: mutating
+    the returned list must never corrupt the buffer's own state, and a
+    snapshot taken before further appends must not grow after the fact."""
+    buf = SnapshotBuffer(max_frames=10)
+    buf.append({"tick": 1})
+    buf.append({"tick": 2})
+
+    snapshot = buf.get_all()
+    assert snapshot is not buf.buffer
+    assert len(snapshot) == 2
+
+    # Mutating the returned list must not affect the buffer.
+    snapshot.append({"tick": 999})
+    snapshot.clear()
+    assert len(buf.get_all()) == 2
+
+    # A snapshot taken before more appends must stay frozen at its own
+    # length -- it is not a live view onto the buffer.
+    frozen_snapshot = buf.get_all()
+    buf.append({"tick": 3})
+    buf.append({"tick": 4})
+    assert len(frozen_snapshot) == 2
+    assert len(buf.get_all()) == 4
+
+
+def test_snapshot_buffer_concurrent_append_and_read_no_corruption() -> None:
+    """Concurrent writer threads (simulating the engine's tick thread
+    appending) and reader threads (simulating REST history handlers
+    calling get_all()/get_frame() with no synchronization of their own)
+    must never corrupt the buffer's internal list or raise -- and the
+    existing capacity/uniqueness semantics must still hold once every
+    thread has finished."""
+    max_frames = 200
+    buf = SnapshotBuffer(max_frames=max_frames)
+    num_writer_threads = 8
+    appends_per_writer = 100
+    num_reader_threads = 8
+    reads_per_reader = 200
+
+    errors: "queue.Queue[BaseException]" = queue.Queue()
+
+    def writer(writer_id: int) -> None:
+        try:
+            for seq in range(appends_per_writer):
+                # Globally unique tick per (writer, seq) pair so post-hoc
+                # duplicate detection actually proves no frame was
+                # corrupted/duplicated by a racing append.
+                buf.append({"tick": writer_id * appends_per_writer + seq})
+        except BaseException as exc:  # noqa: BLE001 - must capture every failure mode
+            errors.put(exc)
+
+    def reader() -> None:
+        try:
+            for i in range(reads_per_reader):
+                frames = buf.get_all()
+                # Iterating the returned list must never explode even
+                # while writers are actively appending/evicting.
+                for frame in frames:
+                    assert "tick" in frame
+                buf.get_frame(i)
+        except BaseException as exc:  # noqa: BLE001 - must capture every failure mode
+            errors.put(exc)
+
+    threads = [
+        threading.Thread(target=writer, args=(i,)) for i in range(num_writer_threads)
+    ] + [threading.Thread(target=reader) for _ in range(num_reader_threads)]
+
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=10.0)
+
+    assert not any(t.is_alive() for t in threads), "a thread failed to finish (deadlock?)"
+    if not errors.empty():
+        raise errors.get()
+
+    # Capacity semantics preserved: never grew past max_frames despite
+    # num_writer_threads * appends_per_writer (800) total appends.
+    final = buf.get_all()
+    assert len(final) == max_frames
+
+    # No duplicated/corrupted entries: every surviving frame's tick is
+    # unique (append()/pop(0) under the lock cannot have interleaved into
+    # a torn read-modify-write).
+    ticks = [frame["tick"] for frame in final]
+    assert len(ticks) == len(set(ticks))
+
+
+def test_snapshot_buffer_no_deadlock_with_real_engine_tick_pattern() -> None:
+    """Reproduces the actual production access pattern: the engine's
+    background tick thread calls buffer.append() from inside step() while
+    already holding engine.lock (see build_tick_callback/factory.py), and
+    a separate thread repeatedly calls get_all()/get_frame() the way REST
+    history handlers do, holding no lock at all. Neither side must ever
+    block on the other."""
+    config = {
+        "simulation": {"warmupTime": 0.0, "timeStep": 0.01},
+        "geometry": {"intersectionType": "fixed_time_signal"},
+        "roads": {"approachLength": 100.0, "laneWidth": 3.5, "lanesPerApproach": 2},
+    }
+    clock = Clock(0.01)
+    # Long duration relative to the read loop below, so the engine is
+    # still ticking/appending for the whole read phase rather than
+    # finishing before it starts.
+    engine = SimulationEngine(clock, duration=100.0, config=config)
+    collector = MetricCollector(config)
+    controller = FixedTimeSignalController(config, engine.network)
+    builder = SnapshotBuilder("sim_concurrency", "cfg_concurrency", engine, collector, controller)
+    buffer = SnapshotBuffer(max_frames=50)
+
+    engine.register_tick_callback(
+        build_tick_callback(controller, clock, engine, collector, buffer, builder)
+    )
+
+    errors: "queue.Queue[BaseException]" = queue.Queue()
+
+    def reader() -> None:
+        try:
+            for i in range(500):
+                buffer.get_all()
+                buffer.get_frame(i)
+        except BaseException as exc:  # noqa: BLE001 - must capture every failure mode
+            errors.put(exc)
+
+    engine.start()
+    reader_thread = threading.Thread(target=reader)
+    reader_thread.start()
+    reader_thread.join(timeout=10.0)
+    assert not reader_thread.is_alive(), "reader thread deadlocked against the engine"
+
+    engine.stop()
+    if engine._thread is not None:
+        engine._thread.join(timeout=5.0)
+        assert not engine._thread.is_alive(), "engine thread failed to stop (deadlock?)"
+
+    if not errors.empty():
+        raise errors.get()
+
+    # The engine was genuinely ticking (and appending) throughout the read
+    # loop, not merely idle -- otherwise this test would prove nothing.
+    assert len(buffer.get_all()) > 0
 
 
 def test_snapshot_builder_active_and_exited_vehicles() -> None:
