@@ -131,11 +131,13 @@ Uses a discriminated union based on `geometry.intersectionType`.
 |---|-------|------|----------|---------|-------------|------------|
 | 1 | `innerRadius` | `number` | ❌ | `10` | Inner radius of the circulatory roadway | > 5, ≤ 50 meters |
 | 2 | `outerRadius` | `number` | ❌ | `20` | Outer radius of the circulatory roadway | > `innerRadius` |
-| 3 | `circulatingLanes` | `integer` | ❌ | `1` | Number of circulating lanes | ≥ 1, ≤ 3 |
+| 3 | `circulatingLanes` | `integer` | ❌ | `1` | **Reserved / future-only** — see note below | ≥ 1, ≤ 3 |
 | 4 | `criticalGap` | `number` | ❌ | `4.0` | Minimum acceptable gap for entry | > 0, ≤ 10 seconds |
 | 5 | `followUpTime` | `number` | ❌ | `2.5` | Time between consecutive entering vehicles | > 0 seconds |
 | 6 | `entrySpeed` | `number` | ❌ | `5.0` | Maximum speed at roundabout entry | > 0 m/s |
 | 7 | `circulatingSpeed` | `number` | ❌ | `8.0` | Target speed within the roundabout | > 0, ≤ 15 m/s |
+
+> **`circulatingLanes` is reserved / future-only — it has no runtime effect today.** The value is accepted and schema-validated, and `RoundaboutController` stores it, but nothing in the engine ever reads it back out. The circulating lane count a roundabout actually uses is derived entirely from `roads.lanesPerApproach` (each approach's own incoming lane count doubles as its circulating lane count in `backend/src/roads/network.py` and `backend/src/controllers/roundabout.py`) — approach lanes, circulating lane indices, connection lanes, and exit lanes are all coupled through that one value, with no independent ring-lane-count path anywhere in the current implementation. `circulatingLanes` is being kept in the schema and Pydantic model (not removed or deprecated) because it is expected to become necessary once asymmetric `lanesPerApproach` (see §2.4 above) reaches roundabouts — a single ring can only have one physical lane count, independent of any one approach's lane count, so an asymmetric-lanes roundabout will need a real, independent ring-lane-count parameter. Making it functional will require explicit future design decisions for ring geometry and the approach-lane → ring-lane mapping; none of that exists yet.
 
 ### 2.7 `metrics` — Metric Collection Configuration
 
@@ -310,6 +312,8 @@ Uses a discriminated union based on `geometry.intersectionType`.
   }
 }
 ```
+
+`controller.circulatingLanes` in the example above (`1`) is reserved / future-only (see §2.6.2) — it is included because it is schema-valid and accepted, not because setting it changes simulation behavior. This roundabout's actual circulating lane count comes from `roads.lanesPerApproach` (also `1`, above).
 
 ---
 
