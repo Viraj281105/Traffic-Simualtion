@@ -211,6 +211,16 @@ def _get_simulation_or_404(sim_id: str) -> Dict[str, Any]:
     return simulations_db[sim_id]
 
 
+def _iso_timestamp(epoch_seconds: float) -> str:
+    """Formats a Unix timestamp using this API's existing UTC-Z convention
+    (see http_exception_handler's error "timestamp" field)."""
+    return (
+        datetime.fromtimestamp(epoch_seconds, tz=timezone.utc)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
+
+
 # ── Global State for Single-Vehicle Polling Mode (Sprint 2 UI compatibility) ──
 class SingleVehicleState:
     def __init__(self) -> None:
@@ -469,19 +479,22 @@ def create_simulation(config: Dict[str, Any]) -> Dict[str, Any]:
         )
     )
 
+    created_at = time.time()
     simulations_db[sim_id] = {
         "engine": engine,
         "collector": collector,
         "controller": controller,
         "config_id": config_id,
         "buffer": buffer,
-        "created_at": time.time(),
+        "created_at": created_at,
     }
 
     return {
         "simulationId": sim_id,
         "configId": config_id,
         "status": engine.status.value.lower(),
+        "createdAt": _iso_timestamp(created_at),
+        "config": config,
     }
 
 
@@ -513,6 +526,10 @@ def control_simulation(sim_id: str, payload: ControlRequest) -> Dict[str, Any]:
     if action not in ("start", "pause", "resume", "stop"):
         raise HTTPException(status_code=400, detail="Invalid action")
 
+    # Captured before the transition so it reflects the actual prior state,
+    # not a value re-derived after engine.status has already changed.
+    previous_status = engine.status.value.lower()
+
     try:
         if action == "start":
             engine.start()
@@ -529,10 +546,19 @@ def control_simulation(sim_id: str, payload: ControlRequest) -> Dict[str, Any]:
         # (docs/architecture/08-communication-contract.md §6.2), not an
         # unhandled 500. pause()/resume()/stop() have no invalid-transition
         # case to catch here: they are documented no-ops outside their
-        # applicable state (see SimulationEngine).
+        # applicable state (see SimulationEngine). Nothing is returned on
+        # this path, so a failed transition can never produce a payload
+        # that looks like a successful one.
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
-    return {"status": engine.status.value.lower()}
+    current_status = engine.status.value.lower()
+    return {
+        "status": current_status,
+        "simulationId": sim_id,
+        "previousStatus": previous_status,
+        "currentStatus": current_status,
+        "timestamp": _iso_timestamp(time.time()),
+    }
 
 
 @app.get("/api/v1/simulations/{sim_id}")
