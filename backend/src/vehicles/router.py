@@ -112,9 +112,20 @@ def find_leader(
         # Special logic for roundabouts: connection lanes circle the same roundabout, so
         # vehicles can be on different connection lane objects but physically follow each other if they are in the same lane index.
         if getattr(network, "is_roundabout", False) and lane.lane_id.startswith("conn"):
+            # Fallback only, for lanes with no circulating_radius metadata
+            # (e.g. hand-built Lane objects in tests that bypass
+            # RoadNetwork._get_or_create_connection_lane). A real roundabout
+            # connection lane always carries its own circulating_radius
+            # (see Lane.circulating_radius / network.py), which is what the
+            # cross-lane-object same-index case below actually uses — each
+            # circulating lane index has its own true radius, not the ring's
+            # overall average.
             inner_r = getattr(network, "inner_radius", 10.0)
             outer_r = getattr(network, "outer_radius", 20.0)
             avg_radius = (inner_r + outer_r) / 2.0
+            same_index_radius = getattr(lane, "circulating_radius", None)
+            if same_index_radius is None:
+                same_index_radius = avg_radius
 
             try:
                 my_lane_idx = int(lane.lane_id.split("_")[2])
@@ -145,23 +156,32 @@ def find_leader(
                 except (ValueError, IndexError):
                     pass
 
-                v_x, v_y = v.coords
-                theta_v = math.atan2(v_y, v_x)
+                if v.lane is vehicle.lane:
+                    # Exact arc-length distance: vehicle.position/v.position
+                    # already share the same coordinate system on the
+                    # identical connection-lane object, so no polar-angle/
+                    # avg_radius estimate is needed (or as precise) here.
+                    v_dist = dist_to_lane_start + (v.position - vehicle.position)
+                else:
+                    v_x, v_y = v.coords
+                    theta_v = math.atan2(v_y, v_x)
 
-                # Counter-clockwise angular distance from theta_self to theta_v
-                diff = (theta_v - theta_self) % (2 * math.pi)
+                    # Counter-clockwise angular distance from theta_self to theta_v
+                    diff = (theta_v - theta_self) % (2 * math.pi)
 
-                # Only consider vehicles that are actually ahead of us in forward circular flow (within 180 degrees)
-                if 0.0 < diff <= math.pi:
-                    arc_dist = avg_radius * diff
+                    # Only consider vehicles that are actually ahead of us in forward circular flow (within 180 degrees)
+                    if not (0.0 < diff <= math.pi):
+                        continue
+
+                    arc_dist = same_index_radius * diff
                     v_dist = dist_to_lane_start + arc_dist
 
-                    if v_dist > 0:
-                        gap = v_dist - (vehicle.length / 2.0 + v.length / 2.0)
-                        gap = max(0.0, gap)
-                        if gap < best_gap:
-                            best_gap = gap
-                            best_leader = v
+                if v_dist > 0:
+                    gap = v_dist - (vehicle.length / 2.0 + v.length / 2.0)
+                    gap = max(0.0, gap)
+                    if gap < best_gap:
+                        best_gap = gap
+                        best_leader = v
         else:
             # Scan vehicles on this lane
             for v in lane.get_vehicles():

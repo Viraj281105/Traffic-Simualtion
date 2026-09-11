@@ -29,6 +29,7 @@ describe("WeightedScoringPanel", () => {
     spaceFootprintConsumed: 450.0,
     intersectionUtilization: 0.65,
     criticalSaturationVolume: 1200,
+    collisionCount: 0,
   };
 
   const mockRoundaboutMetrics: RunningMetrics = {
@@ -52,6 +53,7 @@ describe("WeightedScoringPanel", () => {
     spaceFootprintConsumed: 500.0,
     intersectionUtilization: 0.55,
     criticalSaturationVolume: 1400,
+    collisionCount: 0,
   };
 
   it("renders scoring panel with winner banner and default weights", () => {

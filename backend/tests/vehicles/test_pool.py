@@ -1,4 +1,4 @@
-from src.core.enums import Direction, VehicleState
+from src.core.enums import Direction, TurnIntent, VehicleState
 from src.roads.lane import Lane
 from src.roads.network import RoadNetwork
 from src.vehicles.pool import VehiclePool
@@ -134,3 +134,103 @@ def test_vehicle_pool_collision_debounced_across_ticks() -> None:
     vb.position = 5.5
     pool._collision_audit()
     assert pool.collision_count == 2
+
+
+def test_collision_audit_flags_different_lane_index_conn_pairs() -> None:
+    """Regression for the collision-audit "parallel lane" skip bug: two
+    conn_* vehicles from the same origin but a DIFFERENT circulating lane
+    index are a genuine cross-lane-index roundabout weave conflict — the
+    exact case router.find_leader's Layer 4 is responsible for catching —
+    and must remain eligible for this audit, not be skipped as merely
+    "parallel". Same coordinates as test_vehicle_pool_collision_audit_
+    separation's proven-overlapping pair, just with conn_* lane ids."""
+    lane_a = Lane("conn_n_0_straight", 0.0, 0.0, 10.0, 0.0)
+    lane_b = Lane("conn_n_1_left", 5.0, -5.0, 5.0, 5.0)
+
+    va = Vehicle("va", 4.0, 2.0, 5.0, [lane_a], start_position=5.0, initial_speed=5.0)
+    vb = Vehicle("vb", 4.0, 2.0, 2.0, [lane_b], start_position=5.5, initial_speed=2.0)
+
+    pool = VehiclePool()
+    pool.add_vehicle(va)
+    pool.add_vehicle(vb)
+    pool._collision_audit()
+
+    assert pool.collision_count == 1
+    assert vb.speed == 0.0
+
+
+def test_collision_audit_still_skips_same_lane_index_conn_pairs() -> None:
+    """Two conn_* lanes from the same origin AND the same circulating lane
+    index (different turn intents) are one continuous physical path per
+    Layer 1's same-lane-index following (router.find_leader) — they must
+    stay grouped/skipped by the audit, exactly as before this fix."""
+    lane_a = Lane("conn_n_0_straight", 0.0, 0.0, 10.0, 0.0)
+    lane_b = Lane("conn_n_0_left", 5.0, -5.0, 5.0, 5.0)
+
+    va = Vehicle("va", 4.0, 2.0, 5.0, [lane_a], start_position=5.0, initial_speed=5.0)
+    vb = Vehicle("vb", 4.0, 2.0, 2.0, [lane_b], start_position=5.5, initial_speed=2.0)
+
+    pool = VehiclePool()
+    pool.add_vehicle(va)
+    pool.add_vehicle(vb)
+    pool._collision_audit()
+
+    assert pool.collision_count == 0
+
+
+def test_collision_audit_still_skips_ordinary_parallel_lanes() -> None:
+    """Ordinary same-direction parallel approach lanes (e.g. n_in_0 vs
+    n_in_1) must retain their existing skip — this fix only changes how
+    conn_* lanes are grouped, not the plain-direction branch."""
+    lane_a = Lane("n_in_0", 0.0, 0.0, 10.0, 0.0)
+    lane_b = Lane("n_in_1", 5.0, -5.0, 5.0, 5.0)
+
+    va = Vehicle("va", 4.0, 2.0, 5.0, [lane_a], start_position=5.0, initial_speed=5.0)
+    vb = Vehicle("vb", 4.0, 2.0, 2.0, [lane_b], start_position=5.5, initial_speed=2.0)
+
+    pool = VehiclePool()
+    pool.add_vehicle(va)
+    pool.add_vehicle(vb)
+    pool._collision_audit()
+
+    assert pool.collision_count == 0
+
+
+def test_attempt_lane_change_handles_unregistered_direction_gracefully() -> None:
+    """Regression for narrowing pool.py's _attempt_lane_change from a bare
+    `except Exception` to (KeyError, ValueError, IndexError): a vehicle
+    whose approach direction isn't registered on the network (a genuine,
+    expected "lane data unavailable" condition — network.get_incoming_
+    approach() raises KeyError, matching the pattern used throughout
+    roundabout.py/router.py) must be handled gracefully, not crash the
+    caller, exactly as the previous bare except did for this case."""
+    lane = Lane("n_in_0", 0.0, 0.0, 0.0, 40.0)
+    vehicle = Vehicle(
+        "v1",
+        4.0,
+        2.0,
+        10.0,
+        [lane],
+        start_position=0.0,
+        turn_intent=TurnIntent.STRAIGHT,
+    )
+
+    class BareNetwork:
+        """A network with no approaches registered at all, so
+        get_incoming_approach() raises KeyError for every direction."""
+
+        def get_incoming_approach(self, direction: Direction) -> None:
+            raise KeyError(direction)
+
+    class DummyEngine:
+        def __init__(self) -> None:
+            self.network = BareNetwork()
+
+    pool = VehiclePool()
+    pool.add_vehicle(vehicle)
+
+    # Must not raise — the narrowed except must still catch this.
+    pool._attempt_lane_change(vehicle, current_time=100.0, engine=DummyEngine())
+
+    # No lane change occurred (network had nothing to offer).
+    assert vehicle.lane is lane

@@ -102,7 +102,11 @@ export interface RunningMetrics {
   totalStops: number;
   averageStopsPerVehicle: number;
   speedVarianceIndex: number;
-  travelTimeReliability: number;
+  // null for a genuine zero-median-travel-time case — see
+  // calculate_travel_time_reliability() in the backend, which returns None
+  // (not a fabricated 1.0) when real travel-time data exists but the
+  // computed median is exactly 0.
+  travelTimeReliability: number | null;
   idleOpportunityLoss: number;
   directionalFairnessIndex: number;
   activeVehicleCount: number;
@@ -114,6 +118,11 @@ export interface RunningMetrics {
   intersectionUtilization: number;
   criticalSaturationVolume: number;
   masterEfficiencyScore?: number;
+  // Running total of debounced collision events (VehiclePool.collision_count
+  // — one event per overlapping vehicle pair, counted once when the overlap
+  // begins, not once per tick it persists). 0 when no collision has
+  // occurred, including the zero-vehicle case.
+  collisionCount: number;
 }
 
 // ── Vehicle counts ─────────────────────────────────────────────────────────

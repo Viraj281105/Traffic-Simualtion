@@ -1,5 +1,5 @@
 import math
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from src.core.enums import Direction, TurnIntent
 from src.roads.approach import Approach
@@ -251,6 +251,7 @@ class RoadNetwork:
         end_x, end_y = exit_lane.start_coords
 
         waypoints = None
+        target_r: Optional[float] = None
         if getattr(self, "is_roundabout", False):
             # Circular roundabout geometry
             inner_r = getattr(self, "inner_radius", 10.0)
@@ -314,6 +315,8 @@ class RoadNetwork:
             speed_limit=incoming_approach.speed_limit,
             waypoints=waypoints,
         )
+        if target_r is not None:
+            connection_lane.circulating_radius = target_r
 
         self._connection_lane_cache[key] = connection_lane
         return connection_lane

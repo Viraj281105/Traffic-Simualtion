@@ -33,7 +33,15 @@ class MetricCollector:
     def __init__(self, config: Dict[str, Any]) -> None:
         self.config: Dict[str, Any] = config
         sim_cfg = config.get("simulation", {})
-        self.warmup_time: float = sim_cfg.get("warmupTime", 15.0)
+        # Fallback of 30.0 matches the documented/canonical default
+        # (docs/architecture/06-scenario-configuration-contract.md §2.1,
+        # SimulationSection.warmupTime, CONFIG_SCHEMA) — a config that omits
+        # warmupTime entirely (e.g. a raw-dict /api/v1/simulations request,
+        # which is not defaults-filled by jsonschema validation) must
+        # exclude the same initial approach period as the typed path, where
+        # Pydantic's own default always fills this key in before it reaches
+        # here.
+        self.warmup_time: float = sim_cfg.get("warmupTime", 30.0)
         self.time_step: float = sim_cfg.get("timeStep", 0.1)
 
         # Hysteresis configuration
@@ -131,8 +139,18 @@ class MetricCollector:
         active_vehicles: List[Vehicle],
         exited_vehicles: List[Vehicle],
         total_spawned: int,
+        collision_count: int = 0,
     ) -> Dict[str, Any]:
-        """Calculates and aggregates the complete metrics snapshot."""
+        """Calculates and aggregates the complete metrics snapshot.
+
+        ``collision_count`` is the caller-supplied running total from
+        ``VehiclePool.collision_count`` (see pool.py's debounced
+        ``_collision_audit``) — this collector has no direct reference to
+        the pool, so it is passed in rather than read internally. Defaults
+        to 0 so existing callers that don't pass it (e.g. internal
+        study/validation tooling) still get a well-defined, honest value
+        rather than a missing key.
+        """
         # Filter exited vehicles that completed their journey post-warmup
         post_warmup_exited = [
             v
@@ -361,6 +379,7 @@ class MetricCollector:
                 throughput_rate_val,
                 post_warmup_spawned_count,
             ),
+            "collisionCount": collision_count,
         }
         base_metrics["masterEfficiencyScore"] = calculate_master_efficiency_score(
             base_metrics

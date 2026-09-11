@@ -211,6 +211,16 @@ def _get_simulation_or_404(sim_id: str) -> Dict[str, Any]:
     return simulations_db[sim_id]
 
 
+def _iso_timestamp(epoch_seconds: float) -> str:
+    """Formats a Unix timestamp using this API's existing UTC-Z convention
+    (see http_exception_handler's error "timestamp" field)."""
+    return (
+        datetime.fromtimestamp(epoch_seconds, tz=timezone.utc)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
+
+
 # ── Global State for Single-Vehicle Polling Mode (Sprint 2 UI compatibility) ──
 class SingleVehicleState:
     def __init__(self) -> None:
@@ -366,6 +376,7 @@ def _persist_completed_run(
             engine.pool.active_vehicles,
             engine.pool.exited_vehicles,
             engine.spawner.spawned_count if engine.spawner else 0,
+            engine.pool.collision_count,
         )
         with get_db_connection() as conn:
             SimulationRunDAO.save(
@@ -469,19 +480,22 @@ def create_simulation(config: Dict[str, Any]) -> Dict[str, Any]:
         )
     )
 
+    created_at = time.time()
     simulations_db[sim_id] = {
         "engine": engine,
         "collector": collector,
         "controller": controller,
         "config_id": config_id,
         "buffer": buffer,
-        "created_at": time.time(),
+        "created_at": created_at,
     }
 
     return {
         "simulationId": sim_id,
         "configId": config_id,
         "status": engine.status.value.lower(),
+        "createdAt": _iso_timestamp(created_at),
+        "config": config,
     }
 
 
@@ -513,6 +527,10 @@ def control_simulation(sim_id: str, payload: ControlRequest) -> Dict[str, Any]:
     if action not in ("start", "pause", "resume", "stop"):
         raise HTTPException(status_code=400, detail="Invalid action")
 
+    # Captured before the transition so it reflects the actual prior state,
+    # not a value re-derived after engine.status has already changed.
+    previous_status = engine.status.value.lower()
+
     try:
         if action == "start":
             engine.start()
@@ -529,10 +547,19 @@ def control_simulation(sim_id: str, payload: ControlRequest) -> Dict[str, Any]:
         # (docs/architecture/08-communication-contract.md §6.2), not an
         # unhandled 500. pause()/resume()/stop() have no invalid-transition
         # case to catch here: they are documented no-ops outside their
-        # applicable state (see SimulationEngine).
+        # applicable state (see SimulationEngine). Nothing is returned on
+        # this path, so a failed transition can never produce a payload
+        # that looks like a successful one.
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
-    return {"status": engine.status.value.lower()}
+    current_status = engine.status.value.lower()
+    return {
+        "status": current_status,
+        "simulationId": sim_id,
+        "previousStatus": previous_status,
+        "currentStatus": current_status,
+        "timestamp": _iso_timestamp(time.time()),
+    }
 
 
 @app.get("/api/v1/simulations/{sim_id}")
@@ -560,6 +587,7 @@ def get_simulation_metrics(sim_id: str) -> Dict[str, Any]:
             engine.pool.active_vehicles,
             engine.pool.exited_vehicles,
             engine.spawner.spawned_count if engine.spawner else 0,
+            engine.pool.collision_count,
         )
 
 
@@ -596,6 +624,7 @@ def get_simulation_report(sim_id: str, format: str = "csv") -> Any:  # noqa: A00
             engine.pool.active_vehicles,
             engine.pool.exited_vehicles,
             engine.spawner.spawned_count if engine.spawner else 0,
+            engine.pool.collision_count,
         )
 
     if format == "json":
@@ -698,6 +727,23 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "leftDuration": 5.0,
         "yellowDuration": 4.0,
         "allRedDuration": 2.0,
+        # Matches ControllerSection.phaseSequence's default_factory exactly.
+        # Without this, FixedTimeSignalController falls back to its original
+        # one-direction-at-a-time cycle (see _build_phase_sequence) — the
+        # live dashboard previously got that less realistic default even
+        # though the paired NS/EW-green model was already the documented,
+        # schema-declared default everywhere else. This does not change
+        # FixedTimeSignalController itself, and existing tests that
+        # construct it directly with no phaseSequence key still see the
+        # original one-direction-at-a-time fallback unchanged.
+        "phaseSequence": [
+            "ns_green",
+            "ns_yellow",
+            "all_red",
+            "ew_green",
+            "ew_yellow",
+            "all_red",
+        ],
     },
     "vehicleGeneration": {
         "stopSpeedThreshold": 0.1,
@@ -982,6 +1028,13 @@ def update_simulation_config(payload: Dict[str, Any]) -> Dict[str, Any]:
                         DEFAULT_CONFIG["controller"]["allRedDuration"],
                     )
                 ),
+                # See DEFAULT_CONFIG's phaseSequence comment: without this,
+                # a dashboard config update would silently drop back to the
+                # less realistic one-direction-at-a-time cycle even though
+                # the initial (pre-update) dashboard state used the paired
+                # NS/EW-green model. The compact dashboard form has no
+                # phaseSequence field of its own to override this with.
+                "phaseSequence": DEFAULT_CONFIG["controller"]["phaseSequence"],
             }
             if payload.get("intersectionType", "fixed_time_signal")
             == "fixed_time_signal"
@@ -1457,6 +1510,7 @@ def reproduce_run_endpoint(run_id: str) -> Dict[str, Any]:
             engine.pool.active_vehicles,
             engine.pool.exited_vehicles,
             engine.spawner.spawned_count if engine.spawner else 0,
+            engine.pool.collision_count,
         )
 
         original_metrics = run.get("summary_metrics", {})

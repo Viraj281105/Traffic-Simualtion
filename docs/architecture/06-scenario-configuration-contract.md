@@ -38,7 +38,7 @@ The versioned API accepts this configuration over REST and validates it against 
 |---|-------|------|----------|---------|-------------|------------|
 | 1 | `duration` | `number` | ❌ | `300` | Total simulation duration | > 0, ≤ 3600 seconds |
 | 2 | `timeStep` | `number` | ❌ | `0.1` | Simulation tick interval (dt) | > 0, ≤ 1.0 seconds |
-| 3 | `warmupTime` | `number` | ❌ | `30` | Time before metrics start collecting | ≥ 0, < `duration` |
+| 3 | `warmupTime` | `number` | ❌ | `30` | Initial period excluded from all metrics — vehicles still approaching the intersection during this window (not yet interacting with it) are excluded from averages so they don't distort them. Enforced by a single early-return in `MetricCollector.update()`, so every per-tick-accumulated metric (queues, delay, throughput, speed variance, idle loss, etc.) is excluded consistently. Not the same as `controller.offset` (§2.6.1), which is a signal-timing concept, not an analysis one. | ≥ 0, < `duration` |
 | 4 | `randomSeed` | `integer` | ❌ | `42` | Random number generator seed | ≥ 0 |
 | 5 | `snapshotFrequency` | `number` | ❌ | `10` | Snapshots emitted per second | > 0, ≤ 60 Hz |
 
@@ -84,9 +84,11 @@ The versioned API accepts this configuration over REST and validates it against 
 |---|-------|------|----------|---------|-------------|------------|
 | 1 | `approachLength` | `number` | ❌ | `200` | Length of each approach arm | > 50, ≤ 1000 meters |
 | 2 | `laneWidth` | `number` | ❌ | `3.5` | Width of each lane | > 2.5, ≤ 5.0 meters |
-| 3 | `lanesPerApproach` | `object` | ❌ | — | Per-direction lane counts in the current engine configuration | See schema and operations guide |
+| 3 | `lanesPerApproach` | `integer` | ❌ | `2` | Lane count applied to all four approaches | 1–4 (see `shared/schemas/config.schema.json`) |
 | 4 | `speedLimit` | `number` | ❌ | `13.89` | Speed limit on approach roads | > 0, ≤ 30 m/s (≈108 km/h) |
 | 5 | `approaches` | `array<ApproachConfig>` | ❌ | All 4 directions | Per-approach overrides | See below |
+
+> **Asymmetric lane counts — not yet part of this contract.** The versioned config schema (`shared/schemas/config.schema.json`, enforced on `POST /api/v1/configs/validate` and `POST /api/v1/simulations`) only accepts `lanesPerApproach` as a single integer shared by all four approaches. Internally, the legacy live dashboard routes (`backend/src/main.py`) and the simulation engine (`backend/src/roads/network.py`) already accept a per-direction object (`{"north": 2, "south": 3, ...}`), but that shape is an implementation detail of the live/interactive path, not a validated or documented versioned-API feature. Officially supporting asymmetric per-direction lane counts in the versioned contract — including the schema, Pydantic models, and any dependent metric formulas such as [Space/Footprint Consumed](07-metric-contract.md#61-space--footprint-consumed) — is planned future work, not current behavior.
 
 #### ApproachConfig Object
 
@@ -115,13 +117,26 @@ Uses a discriminated union based on `geometry.intersectionType`.
 
 #### 2.6.1 Fixed-Time Signal Controller
 
+Every duration below has a **canonical** field name (matching `FixedTimeSignalController`'s own naming, and the legacy live-dashboard config path) and, for three of them, one or two **legacy alias** field names retained for backward compatibility. All are accepted by both `shared/schemas/config.schema.json` and the typed `ControllerSection` Pydantic model (used by `POST /api/simulation/new`) — a canonical field is no longer silently dropped by the typed path the way it previously was when only the alias names were declared.
+
 | # | Field | Type | Required | Default | Description | Validation |
 |---|-------|------|----------|---------|-------------|------------|
-| 1 | `greenTime` | `number` | ❌ | `30` | Green phase duration for each direction pair | > 5, ≤ 120 seconds |
-| 2 | `yellowTime` | `number` | ❌ | `4` | Yellow (amber) phase duration | > 2, ≤ 8 seconds |
-| 3 | `allRedTime` | `number` | ❌ | `2` | All-red clearance interval | ≥ 0, ≤ 5 seconds |
-| 4 | `phaseSequence` | `array<string>` | ❌ | `["ns_green", "ns_yellow", "all_red", "ew_green", "ew_yellow", "all_red"]` | Ordered phase sequence | Valid phase names |
-| 5 | `offset` | `number` | ❌ | `0` | Phase offset from start of simulation | ≥ 0 seconds |
+| 1 | `straightRightDuration` (canonical) / `greenDuration` / `greenTime` (aliases) | `number` | ❌ | `30` | Green phase duration for the straight+right movement of each direction | > 5, ≤ 120 seconds |
+| 2 | `leftDuration` | `number` | ❌ | `5` | Protected left-turn green phase duration | > 0, ≤ 60 seconds |
+| 3 | `yellowDuration` (canonical) / `yellowTime` (alias) | `number` | ❌ | `4` | Yellow (amber) phase duration | > 2, ≤ 8 seconds |
+| 4 | `allRedDuration` (canonical) / `allRedTime` (alias) | `number` | ❌ | `2` | All-red clearance interval | ≥ 0, ≤ 5 seconds |
+| 5 | `phaseSequence` | `array<string>` | ❌ | `["ns_green", "ns_yellow", "all_red", "ew_green", "ew_yellow", "all_red"]` | Ordered phase sequence | See below |
+| 6 | `offset` | `number` | ❌ | `0` | Signal phase-coordination offset — shifts the initial phase cursor at simulation start (e.g. for multi-intersection green-wave coordination). **Not** a metrics/analysis warm-up period — see [08-communication-contract.md](08-communication-contract.md) and `simulation.warmupTime` (§2.1) for that. | ≥ 0 seconds |
+
+**Alias precedence** (when more than one name for the same duration is present in one config, `FixedTimeSignalController.__init__` resolves them in this order, highest priority first — later-checked aliases overwrite earlier ones if the canonical field is absent):
+- Green: `straightRightDuration` > `greenTime` > `greenDuration`
+- Yellow: `yellowDuration` > `yellowTime`
+- All-red: `allRedDuration` > `allRedTime`
+- Left: `leftDuration` only — no alias exists for this field.
+
+If none of a duration's names are present, the hardcoded fallback (30 / 5 / 4 / 2 above) is used — chosen to match the canonical/alias defaults exactly, so the effective duration is the same regardless of which alias (or none) a given config uses.
+
+**`phaseSequence` vocabulary:** each entry is either the literal string `"all_red"`, or `"<group>_<green|yellow>"` where `<group>` is one of `n`, `s`, `e`, `w` (a single approach) or `ns`/`sn`, `ew`/`we` (a paired, order-invariant approach group sharing one green — e.g. `ns_green` runs NORTH and SOUTH together). Green-phase duration uses `straightRightDuration` (after alias resolution above); yellow-phase duration uses `yellowDuration`; `all_red` uses `allRedDuration`. During a paired-group green phase, all three turn intents (including permissive left) are allowed for both directions in the group — left-turners crossing opposing straight traffic are arbitrated by `ConflictManager` (see [08-communication-contract.md](08-communication-contract.md)), not by a separate protected-left sub-phase. An entry that doesn't match this vocabulary raises a configuration error surfaced as `400 VALIDATION_ERROR` by `POST /api/v1/simulations` and `POST /api/simulation/new`. When `phaseSequence` is omitted entirely, the controller instead builds its original one-direction-at-a-time cycle (straight+right green → protected left green → yellow → all-red, repeated for N→S→E→W) — see the note on default-consistency below.
 
 #### 2.6.2 Roundabout Controller
 
@@ -129,11 +144,13 @@ Uses a discriminated union based on `geometry.intersectionType`.
 |---|-------|------|----------|---------|-------------|------------|
 | 1 | `innerRadius` | `number` | ❌ | `10` | Inner radius of the circulatory roadway | > 5, ≤ 50 meters |
 | 2 | `outerRadius` | `number` | ❌ | `20` | Outer radius of the circulatory roadway | > `innerRadius` |
-| 3 | `circulatingLanes` | `integer` | ❌ | `1` | Number of circulating lanes | ≥ 1, ≤ 3 |
+| 3 | `circulatingLanes` | `integer` | ❌ | `1` | **Reserved / future-only** — see note below | ≥ 1, ≤ 3 |
 | 4 | `criticalGap` | `number` | ❌ | `4.0` | Minimum acceptable gap for entry | > 0, ≤ 10 seconds |
 | 5 | `followUpTime` | `number` | ❌ | `2.5` | Time between consecutive entering vehicles | > 0 seconds |
 | 6 | `entrySpeed` | `number` | ❌ | `5.0` | Maximum speed at roundabout entry | > 0 m/s |
 | 7 | `circulatingSpeed` | `number` | ❌ | `8.0` | Target speed within the roundabout | > 0, ≤ 15 m/s |
+
+> **`circulatingLanes` is reserved / future-only — it has no runtime effect today.** The value is accepted and schema-validated, and `RoundaboutController` stores it, but nothing in the engine ever reads it back out. The circulating lane count a roundabout actually uses is derived entirely from `roads.lanesPerApproach` (each approach's own incoming lane count doubles as its circulating lane count in `backend/src/roads/network.py` and `backend/src/controllers/roundabout.py`) — approach lanes, circulating lane indices, connection lanes, and exit lanes are all coupled through that one value, with no independent ring-lane-count path anywhere in the current implementation. `circulatingLanes` is being kept in the schema and Pydantic model (not removed or deprecated) because it is expected to become necessary once asymmetric `lanesPerApproach` (see §2.4 above) reaches roundabouts — a single ring can only have one physical lane count, independent of any one approach's lane count, so an asymmetric-lanes roundabout will need a real, independent ring-lane-count parameter. Making it functional will require explicit future design decisions for ring geometry and the approach-lane → ring-lane mapping; none of that exists yet.
 
 ### 2.7 `metrics` — Metric Collection Configuration
 
@@ -308,6 +325,8 @@ Uses a discriminated union based on `geometry.intersectionType`.
   }
 }
 ```
+
+`controller.circulatingLanes` in the example above (`1`) is reserved / future-only (see §2.6.2) — it is included because it is schema-valid and accepted, not because setting it changes simulation behavior. This roundabout's actual circulating lane count comes from `roads.lanesPerApproach` (also `1`, above).
 
 ---
 

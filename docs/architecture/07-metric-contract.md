@@ -385,6 +385,8 @@ Where:
 
 For 2 lanes per approach: $A = (2 \times 2 \times 3.5) \times (2 \times 2 \times 3.5) = 14 \times 14 = 196 \text{ m}^2$
 
+> **Note on asymmetric lane counts:** this formula assumes $n_{\text{NS}}$ and $n_{\text{EW}}$ are known per direction. The versioned configuration contract currently only supports a single scalar `lanesPerApproach` shared by all four approaches (see [06-scenario-configuration-contract.md](06-scenario-configuration-contract.md#24-roads--road-configuration)), in which case $n_{\text{NS}} = n_{\text{EW}} = 2 \times \text{lanesPerApproach}$ and this formula matches `calculate_space_footprint_consumed()`. Per-direction asymmetric lane counts are accepted only by the internal live-dashboard representation, where `calculate_space_footprint_consumed()` instead approximates the area from the largest single approach rather than applying this formula. Reconciling this formula with true per-direction asymmetry is planned future work, contingent on asymmetric lanes becoming an officially supported configuration (see the note above).
+
 **Roundabout:**
 
 The footprint is the area of the outer circle:
@@ -402,7 +404,149 @@ For $r_{\text{outer}} = 20$m: $A = \pi \times 400 \approx 1256.6 \text{ m}^2$
 
 ---
 
-## 7. Metric Summary Table
+## 7. Ancillary / Derived Metrics
+
+These metrics are genuinely emitted by `MetricCollector.get_metrics()` (see §9's output schema) but are not part of the primary 10-metric registry in §8's summary table — they are secondary/derived statistics that were previously undocumented. Definitions below are transcribed directly from the current implementation (`backend/src/metrics/collector.py`, `backend/src/metrics/efficiency.py`, `backend/src/metrics/definitions/derived_metrics.py`); none are new or changed by this section.
+
+### 7.1 Master Efficiency Score
+
+| Attribute | Value |
+|-----------|-------|
+| **Output key** | `masterEfficiencyScore` |
+| **Description** | A single weighted composite score summarizing overall intersection performance, for at-a-glance comparison between designs. |
+| **Units** | dimensionless, 0.0–100.0 |
+| **Direction** | Higher ↑ |
+| **Running?** | ✅ (recomputed every `get_metrics()` call from that call's own other metric values) |
+| **Implementation** | `calculate_master_efficiency_score()` in `backend/src/metrics/efficiency.py` |
+
+**Mathematical Definition:**
+
+$$
+\text{Score} = 30 \cdot \text{tp\_norm} + 25 \cdot \text{wait\_norm} + 15 \cdot \text{stops\_norm} + 20 \cdot \text{fairness\_norm} + 10 \cdot \text{idle\_norm}
+$$
+
+Where, given `throughputRate` (veh/min), `averageWaitTime` (s), `averageStopsPerVehicle`, `directionalFairnessIndex`, and `idleOpportunityLoss` from the same metrics snapshot:
+- $\text{tp\_norm} = \min(1, \frac{\text{throughputRate}/60}{2.0})$ — normalized against a 2.0 veh/s (120 veh/min) ceiling
+- $\text{wait\_norm} = \max(0, 1 - \frac{\text{averageWaitTime}}{60})$ — 1.0 at 0s wait, 0.0 at ≥60s
+- $\text{stops\_norm} = \max(0, 1 - \frac{\text{averageStopsPerVehicle}}{5})$ — 1.0 at 0 stops, 0.0 at ≥5 stops
+- $\text{fairness\_norm} = \text{clamp}(\text{directionalFairnessIndex}, 0, 1)$
+- $\text{idle\_norm} = \max(0, 1 - \text{idleOpportunityLoss})$
+
+Result is rounded to 1 decimal place. Safe for the zero-vehicle case: every input metric already defaults to a well-defined value (e.g. `directionalFairnessIndex` defaults to 1.0, `idleOpportunityLoss`/`averageWaitTime`/`averageStopsPerVehicle` default to 0.0) with no vehicles active, so the score is always computable.
+
+### 7.2 Queue Stability Index
+
+| Attribute | Value |
+|-----------|-------|
+| **Output key** | `queueStabilityIndex` |
+| **Description** | Coefficient of variation of total intersection-wide queue length over time — how erratically the queue fluctuates relative to its own average, independent of scale. |
+| **Units** | dimensionless |
+| **Direction** | Lower ↓ (a stable, predictable queue) |
+| **Running?** | ✅ |
+| **Implementation** | `calculate_queue_stability_index()` in `backend/src/metrics/definitions/derived_metrics.py` |
+
+**Mathematical Definition:**
+
+$$
+\text{QSI} = \frac{\sigma(Q_t)}{\bar{Q}_t}
+$$
+
+Where $Q_t$ is the total queue length (summed across all four approaches) at post-warmup tick $t$, $\sigma$ is the sample standard deviation, and $\bar{Q}_t$ is the mean. Returns `0.0` if fewer than 2 post-warmup ticks have elapsed, or if the mean queue length is exactly 0 (avoids division by zero). Rounded to 3 decimal places.
+
+### 7.3 Intersection Utilization
+
+| Attribute | Value |
+|-----------|-------|
+| **Output key** | `intersectionUtilization` |
+| **Description** | Percentage of post-warmup ticks with at least one active vehicle during which the average active-vehicle speed exceeded the "waiting" threshold — a proxy for how much of the demand period the intersection was actually flowing rather than stopped. |
+| **Units** | percent, 0.0–100.0 |
+| **Direction** | Context-dependent — neither higher nor lower is unconditionally better; very low values indicate under-utilization, values near 100 with high queue metrics indicate saturation. |
+| **Running?** | ✅ |
+| **Implementation** | `MetricCollector.get_metrics()`, using `self.service_ticks` / `self.demand_ticks` accumulated in `update()` |
+
+**Mathematical Definition:**
+
+$$
+U = \begin{cases} \dfrac{\text{service\_ticks}}{\text{demand\_ticks}} \times 100 & \text{demand\_ticks} > 0 \\ 0 & \text{demand\_ticks} = 0 \end{cases}
+$$
+
+`demand_ticks` counts post-warmup ticks with ≥1 active vehicle; `service_ticks` counts the subset of those where the average active-vehicle speed exceeds `vehicleGeneration.waitSpeedThreshold`. Rounded to 1 decimal place.
+
+### 7.4 Congestion Recovery Time
+
+| Attribute | Value |
+|-----------|-------|
+| **Output key** | `congestionRecoveryTime` |
+| **Description** | Total simulated time spent in a congested state, defined as total intersection-wide queue length exceeding 5 vehicles. |
+| **Units** | seconds |
+| **Direction** | Lower ↓ |
+| **Running?** | ✅ |
+| **Implementation** | `MetricCollector.update()` / `get_metrics()` |
+
+**Mathematical Definition:**
+
+$$
+T_{\text{recovery}} = \sum_{t \,:\, Q_t > 5} \Delta t
+$$
+
+Accumulated post-warmup only, incrementing by `simulation.timeStep` on every tick where total queue length across all four approaches exceeds 5 vehicles. Rounded to 2 decimal places. The `5` threshold is a fixed constant in the implementation, not currently configurable.
+
+### 7.5 Active Average Queue Length
+
+| Attribute | Value |
+|-----------|-------|
+| **Output key** | `activeAverageQueueLength` |
+| **Description** | Mean total intersection-wide queue length, computed only over ticks where a queue actually existed (total queue > 0) — distinct from `averageQueueLength` (§2.3), which is the mean of per-direction time-averages including zero-queue ticks. |
+| **Units** | vehicles |
+| **Direction** | Lower ↓ |
+| **Running?** | ✅ |
+| **Implementation** | `MetricCollector.get_metrics()` |
+
+**Mathematical Definition:**
+
+$$
+\overline{Q}_{\text{active}} = \frac{1}{|\{t : Q_t > 0\}|} \sum_{t \,:\, Q_t > 0} Q_t
+$$
+
+Returns `0.0` if no post-warmup tick ever had a nonzero total queue. Rounded to 2 decimal places.
+
+### 7.6 Queue Standard Deviation
+
+| Attribute | Value |
+|-----------|-------|
+| **Output key** | `queueStdDev` |
+| **Description** | Sample standard deviation of total intersection-wide queue length across all post-warmup ticks (including zero-queue ticks) — the un-normalized companion to `queueStabilityIndex` (§7.2). |
+| **Units** | vehicles |
+| **Direction** | Lower ↓ |
+| **Running?** | ✅ |
+| **Implementation** | `MetricCollector.get_metrics()` |
+
+**Mathematical Definition:**
+
+$$
+\sigma(Q_t) = \sqrt{\frac{1}{n-1}\sum_t (Q_t - \bar{Q}_t)^2}
+$$
+
+Returns `0.0` if fewer than 2 post-warmup ticks have elapsed. Rounded to 2 decimal places.
+
+### 7.7 Collision Count
+
+| Attribute | Value |
+|-----------|-------|
+| **Output key** | `collisionCount` |
+| **Description** | Running total of debounced collision events detected by the post-hoc Separating Axis Theorem overlap audit — one event per overlapping vehicle-pair, counted once on the tick the overlap begins, not once per tick it persists (see `VehiclePool._collision_audit()`). This is a deterministic count of a real, already-tracked safety-net event, not a probability or rate — see [Remaining collision-audit limitations](#remaining-collision-audit-limitations) below. |
+| **Units** | count (integer) |
+| **Direction** | Lower ↓ (0 is the only fully safe value) |
+| **Running?** | ✅ |
+| **Implementation** | `VehiclePool.collision_count` (pool.py), passed into `MetricCollector.get_metrics(..., collision_count=...)` by each caller (`backend/src/main.py`, `backend/src/snapshot/builder.py`, `backend/src/study/volume_sweep.py`) |
+
+**Definition:** the exact value of `VehiclePool.collision_count` at the moment `get_metrics()` is called — no additional transformation, rate, or normalization is applied. Always `0` for a simulation with no detected overlaps, including the zero-vehicle case, since the underlying counter starts at `0` and is only ever incremented.
+
+<a id="remaining-collision-audit-limitations"></a>**Remaining collision-audit limitations (not addressed by exposing this count):** the audit is reactive/post-hoc — it detects and freezes already-overlapping vehicles, it does not prevent collisions. No predictive rate or probability is derived from this count because the normalization convention (per vehicle? per minute? per 100 vehicles?) is an undecided product choice, not a data limitation — see the roundabout conflict-architecture investigation notes for related context on the current safety-net's known gaps.
+
+---
+
+## 8. Metric Summary Table
 
 | # | Metric ID | Category | Units | Direction | Running? | Key Formula |
 |---|-----------|----------|-------|-----------|----------|-------------|
@@ -422,90 +566,74 @@ For $r_{\text{outer}} = 20$m: $A = \pi \times 400 \approx 1256.6 \text{ m}^2$
 
 ---
 
-## 8. Metric Output Schema
+## 9. Metric Output Schema
 
-The final metric output (returned after simulation completion) follows this structure:
+> **Audited 2026-09-11 against `backend/src/metrics/collector.py`
+> (`MetricCollector.get_metrics()`):** the nested
+> `{simulationId, ..., metrics: {name: {value, unit, ...}}}` envelope
+> previously shown here was never implemented and does not describe
+> current behavior. The actual output is a single **flat** dictionary —
+> camelCase key → raw numeric/primitive/dict value, with no per-metric
+> `{value, unit}` wrapper and no top-level `simulationId`/`metrics`
+> nesting. This exact dictionary is what `GET
+> /api/v1/simulations/{id}/metrics` returns, what
+> `GET /api/v1/simulations/{id}/report?format=json` puts under
+> `finalMetrics`, and what every WebSocket snapshot carries as its running
+> metrics (see
+> [08-communication-contract.md §3.6](./08-communication-contract.md#36-get-metrics)).
+> Metric *names* in this dictionary don't always match the `Metric ID`
+> column in §8's summary table either (e.g. the footprint metric here is
+> keyed `spaceFootprintConsumed`, not `footprint`); the summary table
+> tracks conceptual metric identity, this section tracks the literal
+> output keys. The ancillary metrics in §7 (`masterEfficiencyScore`,
+> `queueStabilityIndex`, `intersectionUtilization`,
+> `congestionRecoveryTime`, `activeAverageQueueLength`, `queueStdDev`,
+> `collisionCount`) appear here too, using their literal output key names
+> directly (they were never given separate conceptual `Metric ID`s).
+
+The metrics output is a flat object, for example (abbreviated — not every key is shown):
 
 ```json
 {
-  "simulationId": "sim_a1b2c3d4",
-  "configId": "cfg_fixed_time_default",
-  "controllerType": "fixed_time_signal",
-  "simulationDuration": 300,
-  "effectiveDuration": 270,
-  "totalVehiclesProcessed": 185,
-  "computedAt": "2026-07-23T14:35:00.000Z",
-
-  "metrics": {
-    "average_wait_time": {
-      "value": 23.4,
-      "unit": "seconds",
-      "sampleSize": 185,
-      "confidence": "high"
-    },
-    "throughput": {
-      "value": 185,
-      "unit": "vehicles",
-      "rate": 41.1,
-      "rateUnit": "vehicles_per_minute"
-    },
-    "queue_length": {
-      "average": 4.25,
-      "maximum": 12,
-      "percentile95": 9,
-      "unit": "vehicles",
-      "perDirection": {
-        "north": { "average": 4.8, "maximum": 12 },
-        "south": { "average": 3.1, "maximum": 8 },
-        "east": { "average": 5.2, "maximum": 11 },
-        "west": { "average": 3.9, "maximum": 9 }
-      }
-    },
-    "stop_count": {
-      "value": 2.07,
-      "unit": "stops_per_vehicle",
-      "total": 383
-    },
-    "speed_variance": {
-      "value": 0.45,
-      "unit": "dimensionless"
-    },
-    "travel_time_reliability": {
-      "value": 1.8,
-      "unit": "dimensionless",
-      "median_travel_time": 25.0,
-      "p95_travel_time": 45.0
-    },
-    "idle_opportunity_loss": {
-      "value": 0.12,
-      "unit": "dimensionless"
-    },
-    "critical_saturation_volume": {
-      "value": 0.72,
-      "unit": "vehicles_per_second",
-      "confidence": "medium"
-    },
-    "directional_fairness": {
-      "value": 0.85,
-      "unit": "dimensionless",
-      "perDirection": {
-        "north": 25.1,
-        "south": 21.8,
-        "east": 28.3,
-        "west": 18.4
-      }
-    },
-    "footprint": {
-      "value": 196.0,
-      "unit": "square_meters"
-    }
-  }
+  "averageWaitTime": 23.4,
+  "averageDelay": 23.4,
+  "medianDelay": 20.1,
+  "minDelay": 0.0,
+  "maxDelay": 58.2,
+  "p95Delay": 45.0,
+  "delayStdDev": 9.8,
+  "throughput": 185,
+  "throughputRate": 41.1,
+  "currentQueueLengths": { "north": 2, "south": 1, "east": 0, "west": 3 },
+  "maxQueueLength": 12,
+  "averageQueueLength": 4.25,
+  "activeAverageQueueLength": 3.9,
+  "queueStdDev": 2.1,
+  "totalStops": 383,
+  "averageStopsPerVehicle": 2.07,
+  "speedVarianceIndex": 0.45,
+  "travelTimeReliability": 1.8,
+  "travelTimeReliabilityLowSampleSize": false,
+  "idleOpportunityLoss": 0.12,
+  "directionalFairnessIndex": 0.85,
+  "activeVehicleCount": 14,
+  "totalVehiclesSpawned": 200,
+  "averageTravelSpeed": 9.5,
+  "queueStabilityIndex": 0.8,
+  "congestionRecoveryTime": 12.0,
+  "spaceFootprintConsumed": 196.0,
+  "intersectionUtilization": 65.0,
+  "criticalSaturationVolume": 0.72,
+  "collisionCount": 0,
+  "masterEfficiencyScore": 0.81
 }
 ```
 
+Every key here is produced directly by `MetricCollector.get_metrics()`; no separate metric envelope, units field, or per-metric confidence/sample-size metadata is added anywhere in the response pipeline. Units for each key are as documented per-metric in §2–§7 above.
+
 ---
 
-## 9. Cross-References
+## 10. Cross-References
 
 | Topic | Document |
 |-------|----------|

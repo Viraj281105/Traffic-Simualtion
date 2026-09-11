@@ -122,6 +122,7 @@ def run_volume_sweep_experiment(
                 orchestrator.engine_signal.spawner.spawned_count
                 if orchestrator.engine_signal.spawner
                 else 0,
+                orchestrator.engine_signal.pool.collision_count,
             )
 
             elapsed_round = orchestrator.clock_roundabout.get_elapsed_time()
@@ -132,6 +133,7 @@ def run_volume_sweep_experiment(
                 orchestrator.engine_roundabout.spawner.spawned_count
                 if orchestrator.engine_roundabout.spawner
                 else 0,
+                orchestrator.engine_roundabout.pool.collision_count,
             )
 
             sig_delay = round(
