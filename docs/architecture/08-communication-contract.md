@@ -224,8 +224,8 @@ stateDiagram-v2
     running --> paused: action=pause
     paused --> running: action=resume
     running --> completed: simulation ends
-    running --> stopped: action=stop
-    paused --> stopped: action=stop
+    running --> completed: action=stop
+    paused --> completed: action=stop
     initialized --> error: init failure
     running --> error: runtime error
 ```
