@@ -238,6 +238,69 @@ def test_fixed_time_signal_cycle_wrap_and_missing_approach() -> None:
     assert ctrl.cycle_number > initial_cycles
 
 
+def test_fixed_time_signal_phase_sequence_single_direction_groups() -> None:
+    """phaseSequence entries n/s/e/w each activate exactly one approach."""
+    network = RoadNetwork()
+    network.setup_default_intersection(
+        approach_length=100.0, lane_width=3.5, lanes_per_approach=2
+    )
+    config = {
+        "controller": {
+            "straightRightDuration": 10,
+            "yellowDuration": 3,
+            "allRedDuration": 2,
+            "phaseSequence": ["n_green", "n_yellow", "all_red", "e_green"],
+        }
+    }
+    controller = FixedTimeSignalController(config, network)
+    names = [p.name for p in controller.phases]
+    assert names == ["n_green", "n_yellow", "all_red", "e_green"]
+    assert controller.phases[0].directions == (Direction.NORTH,)
+    assert controller.phases[0].color == "green"
+    assert controller.phases[0].duration == 10.0
+    assert controller.phases[1].color == "yellow"
+    assert controller.phases[1].duration == 3.0
+    assert controller.phases[2].directions == ()
+    assert controller.phases[2].duration == 2.0
+    assert controller.phases[3].directions == (Direction.EAST,)
+
+
+def test_fixed_time_signal_phase_sequence_paired_group_synonyms() -> None:
+    """ns/sn and ew/we are order-invariant synonyms for the same paired
+    approach group."""
+    network = RoadNetwork()
+    network.setup_default_intersection(
+        approach_length=100.0, lane_width=3.5, lanes_per_approach=2
+    )
+    config = {
+        "controller": {
+            "phaseSequence": ["ns_green", "sn_green", "ew_green", "we_green"],
+        }
+    }
+    controller = FixedTimeSignalController(config, network)
+    assert controller.phases[0].directions == (Direction.NORTH, Direction.SOUTH)
+    assert controller.phases[1].directions == (Direction.NORTH, Direction.SOUTH)
+    assert controller.phases[2].directions == (Direction.EAST, Direction.WEST)
+    assert controller.phases[3].directions == (Direction.EAST, Direction.WEST)
+    # All turn intents (including permissive left) are allowed in a paired
+    # group phase — arbitrated by ConflictManager, not a protected sub-phase.
+    assert set(controller.phases[0].allowed_turns) == {
+        TurnIntent.LEFT,
+        TurnIntent.STRAIGHT,
+        TurnIntent.RIGHT,
+    }
+
+
+def test_fixed_time_signal_phase_sequence_invalid_entry_raises() -> None:
+    network = RoadNetwork()
+    network.setup_default_intersection(
+        approach_length=100.0, lane_width=3.5, lanes_per_approach=2
+    )
+    config = {"controller": {"phaseSequence": ["ns_green", "bogus_entry"]}}
+    with pytest.raises(ValueError, match="Unsupported phaseSequence entry"):
+        FixedTimeSignalController(config, network)
+
+
 def test_roundabout_missing_approach_and_yielding_metrics() -> None:
     network = RoadNetwork()
     network.setup_default_intersection(

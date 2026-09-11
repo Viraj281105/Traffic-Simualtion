@@ -230,6 +230,22 @@ def test_directional_fairness() -> None:
     assert calculate_directional_fairness([v_zero]) == 1.0
 
 
+def test_metric_collector_default_warmup_time_matches_documented_default() -> None:
+    """Regression: MetricCollector's own fallback (used when
+    simulation.warmupTime is absent from the config dict — e.g. a raw-dict
+    POST /api/v1/simulations request, which jsonschema validation does not
+    fill defaults into) previously disagreed (15.0) with the documented/
+    Pydantic-declared default (30.0, see SimulationSection.warmupTime and
+    06-scenario-configuration-contract.md §2.1) — meaning the initial
+    approach period excluded from metrics differed depending on which
+    validation path a request took, for the exact same omitted field."""
+    collector = MetricCollector({"simulation": {"timeStep": 0.1}})
+    assert collector.warmup_time == 30.0
+
+    collector_empty = MetricCollector({})
+    assert collector_empty.warmup_time == 30.0
+
+
 def test_average_wait_and_stops_exclude_warmup_contribution() -> None:
     """A vehicle already active when warmup ends must not have its
     pre-warmup wait time / stop count counted in averageWaitTime /
@@ -341,6 +357,29 @@ def test_critical_saturation_volume_uses_post_warmup_spawned_count() -> None:
     # unaffected — it still reports whatever total_spawned was passed.
     assert metrics_inflated["totalVehiclesSpawned"] == 50
     assert metrics_matching["totalVehiclesSpawned"] == 1
+
+
+def test_collision_count_metric_is_deterministic_and_safe_for_zero() -> None:
+    """collisionCount must be exactly the collision_count value passed in
+    (VehiclePool's own debounced counter) — no transformation, rate, or
+    probability derived from it — and must default to 0 when omitted,
+    including for a simulation with no active/exited vehicles at all."""
+    config = {"simulation": {"warmupTime": 0.0, "timeStep": 0.1}}
+    collector = MetricCollector(config)
+
+    # Not passed at all: safe, deterministic default.
+    metrics_default = collector.get_metrics(10.0, [], [], total_spawned=0)
+    assert metrics_default["collisionCount"] == 0
+
+    # Explicit zero.
+    metrics_zero = collector.get_metrics(10.0, [], [], total_spawned=0, collision_count=0)
+    assert metrics_zero["collisionCount"] == 0
+
+    # Explicit nonzero value passes through exactly, unmodified.
+    metrics_some = collector.get_metrics(
+        10.0, [], [], total_spawned=5, collision_count=3
+    )
+    assert metrics_some["collisionCount"] == 3
 
 
 def test_metric_collector_full_lifecycle() -> None:

@@ -450,5 +450,15 @@ class VehiclePool:
                     vehicle.route = network.generate_route(
                         direction, best_target_idx, vehicle.turn_intent
                     )
-        except Exception as e:
+        except (KeyError, ValueError, IndexError) as e:
+            # KeyError: network.get_incoming_approach() for an unregistered
+            # direction (matches the pattern used throughout roundabout.py/
+            # router.py). ValueError: lanes.index(current_lane) if the
+            # vehicle's lane isn't in this approach's lane list. IndexError:
+            # a malformed lane/route lookup inside generate_route(). These
+            # are the same "lane data unavailable, skip this attempt"
+            # conditions every other lane-lookup site in this codebase
+            # narrows to — a bare `except Exception` previously also
+            # swallowed genuine programming errors (e.g. AttributeError)
+            # silently instead of letting them surface.
             logger.error(f"Error changing lane for vehicle {vehicle.vehicle_id}: {e}")

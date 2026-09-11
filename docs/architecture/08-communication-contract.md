@@ -259,7 +259,7 @@ stateDiagram-v2
 > is exactly the flat dictionary produced by `MetricCollector.get_metrics()`
 > (same shape used for WebSocket running metrics and the JSON report), with
 > camelCase keys and unwrapped numeric/primitive values. See
-> [07-metric-contract.md §8](./07-metric-contract.md#8-metric-output-schema)
+> [07-metric-contract.md §9](./07-metric-contract.md#9-metric-output-schema)
 > for the full key list.
 
 **Response (200 OK — current, abbreviated):**

@@ -62,6 +62,7 @@ def test_full_simulation_run_integration() -> None:
         engine.pool.active_vehicles,
         engine.pool.exited_vehicles,
         engine.spawner.spawned_count if engine.spawner else 0,
+        engine.pool.collision_count,
     )
     assert "averageWaitTime" in metrics
     assert "averageTravelSpeed" in metrics
@@ -69,3 +70,9 @@ def test_full_simulation_run_integration() -> None:
     assert "spaceFootprintConsumed" in metrics
     assert "intersectionUtilization" in metrics
     assert "criticalSaturationVolume" in metrics
+    # End-to-end wiring check: the engine's own pool.collision_count
+    # (0 for this uneventful short run) reaches the metrics output exactly,
+    # via the same engine.pool.collision_count call-site pattern used by
+    # every REST/report/snapshot caller in backend/src/main.py and
+    # backend/src/snapshot/builder.py.
+    assert metrics["collisionCount"] == engine.pool.collision_count == 0

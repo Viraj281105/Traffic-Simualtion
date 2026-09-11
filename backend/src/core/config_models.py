@@ -77,6 +77,21 @@ class ControllerSection(BaseModel):
     leftDuration: float = Field(5.0, gt=0, le=60)
     yellowTime: float = Field(4.0, gt=2, le=8)
     allRedTime: float = Field(2.0, ge=0, le=5)
+    # Canonical aliases used internally by FixedTimeSignalController (see
+    # its __init__) and by the legacy live-dashboard config path
+    # (backend/src/main.py DEFAULT_CONFIG / update_simulation_config).
+    # Optional and unset by default so a config that only sets greenTime/
+    # yellowTime/allRedTime behaves exactly as before; when one of these
+    # IS provided, ScenarioConfiguration.model_dump(exclude_none=True)
+    # (see create_simulation_v2 in main.py) keeps it in the dict passed to
+    # the controller, instead of silently dropping it the way an
+    # undeclared Pydantic field previously would have. See
+    # FixedTimeSignalController.__init__ for the exact precedence between
+    # a canonical field and its *Time/*Duration alias when both are set.
+    straightRightDuration: Optional[float] = Field(None, gt=5, le=120)
+    greenDuration: Optional[float] = Field(None, gt=5, le=120)
+    yellowDuration: Optional[float] = Field(None, gt=2, le=8)
+    allRedDuration: Optional[float] = Field(None, ge=0, le=5)
     phaseSequence: List[str] = Field(
         default_factory=lambda: [
             "ns_green",

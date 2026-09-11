@@ -376,6 +376,7 @@ def _persist_completed_run(
             engine.pool.active_vehicles,
             engine.pool.exited_vehicles,
             engine.spawner.spawned_count if engine.spawner else 0,
+            engine.pool.collision_count,
         )
         with get_db_connection() as conn:
             SimulationRunDAO.save(
@@ -586,6 +587,7 @@ def get_simulation_metrics(sim_id: str) -> Dict[str, Any]:
             engine.pool.active_vehicles,
             engine.pool.exited_vehicles,
             engine.spawner.spawned_count if engine.spawner else 0,
+            engine.pool.collision_count,
         )
 
 
@@ -622,6 +624,7 @@ def get_simulation_report(sim_id: str, format: str = "csv") -> Any:  # noqa: A00
             engine.pool.active_vehicles,
             engine.pool.exited_vehicles,
             engine.spawner.spawned_count if engine.spawner else 0,
+            engine.pool.collision_count,
         )
 
     if format == "json":
@@ -724,6 +727,23 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "leftDuration": 5.0,
         "yellowDuration": 4.0,
         "allRedDuration": 2.0,
+        # Matches ControllerSection.phaseSequence's default_factory exactly.
+        # Without this, FixedTimeSignalController falls back to its original
+        # one-direction-at-a-time cycle (see _build_phase_sequence) — the
+        # live dashboard previously got that less realistic default even
+        # though the paired NS/EW-green model was already the documented,
+        # schema-declared default everywhere else. This does not change
+        # FixedTimeSignalController itself, and existing tests that
+        # construct it directly with no phaseSequence key still see the
+        # original one-direction-at-a-time fallback unchanged.
+        "phaseSequence": [
+            "ns_green",
+            "ns_yellow",
+            "all_red",
+            "ew_green",
+            "ew_yellow",
+            "all_red",
+        ],
     },
     "vehicleGeneration": {
         "stopSpeedThreshold": 0.1,
@@ -1008,6 +1028,13 @@ def update_simulation_config(payload: Dict[str, Any]) -> Dict[str, Any]:
                         DEFAULT_CONFIG["controller"]["allRedDuration"],
                     )
                 ),
+                # See DEFAULT_CONFIG's phaseSequence comment: without this,
+                # a dashboard config update would silently drop back to the
+                # less realistic one-direction-at-a-time cycle even though
+                # the initial (pre-update) dashboard state used the paired
+                # NS/EW-green model. The compact dashboard form has no
+                # phaseSequence field of its own to override this with.
+                "phaseSequence": DEFAULT_CONFIG["controller"]["phaseSequence"],
             }
             if payload.get("intersectionType", "fixed_time_signal")
             == "fixed_time_signal"
@@ -1483,6 +1510,7 @@ def reproduce_run_endpoint(run_id: str) -> Dict[str, Any]:
             engine.pool.active_vehicles,
             engine.pool.exited_vehicles,
             engine.spawner.spawned_count if engine.spawner else 0,
+            engine.pool.collision_count,
         )
 
         original_metrics = run.get("summary_metrics", {})

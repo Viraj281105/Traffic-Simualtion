@@ -121,6 +121,10 @@
         "yellowTime": { "type": "number", "exclusiveMinimum": 2, "maximum": 8, "default": 4 },
         "allRedTime": { "type": "number", "minimum": 0, "maximum": 5, "default": 2 },
         "leftDuration": { "type": "number", "exclusiveMinimum": 0, "maximum": 60, "default": 5 },
+        "straightRightDuration": { "type": "number", "exclusiveMinimum": 5, "maximum": 120, "default": 30 },
+        "greenDuration": { "type": "number", "exclusiveMinimum": 5, "maximum": 120, "default": 30 },
+        "yellowDuration": { "type": "number", "exclusiveMinimum": 2, "maximum": 8, "default": 4 },
+        "allRedDuration": { "type": "number", "minimum": 0, "maximum": 5, "default": 2 },
         "phaseSequence": {
           "type": "array",
           "items": { "type": "string" },

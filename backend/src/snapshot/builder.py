@@ -174,6 +174,7 @@ class SnapshotBuilder:
             self.engine.pool.active_vehicles,
             self.engine.pool.exited_vehicles,
             self.engine.spawner.spawned_count if self.engine.spawner else 0,
+            self.engine.pool.collision_count,
         )
 
         # Map current queues for intersection object

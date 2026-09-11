@@ -38,7 +38,7 @@ The versioned API accepts this configuration over REST and validates it against 
 |---|-------|------|----------|---------|-------------|------------|
 | 1 | `duration` | `number` | ❌ | `300` | Total simulation duration | > 0, ≤ 3600 seconds |
 | 2 | `timeStep` | `number` | ❌ | `0.1` | Simulation tick interval (dt) | > 0, ≤ 1.0 seconds |
-| 3 | `warmupTime` | `number` | ❌ | `30` | Time before metrics start collecting | ≥ 0, < `duration` |
+| 3 | `warmupTime` | `number` | ❌ | `30` | Initial period excluded from all metrics — vehicles still approaching the intersection during this window (not yet interacting with it) are excluded from averages so they don't distort them. Enforced by a single early-return in `MetricCollector.update()`, so every per-tick-accumulated metric (queues, delay, throughput, speed variance, idle loss, etc.) is excluded consistently. Not the same as `controller.offset` (§2.6.1), which is a signal-timing concept, not an analysis one. | ≥ 0, < `duration` |
 | 4 | `randomSeed` | `integer` | ❌ | `42` | Random number generator seed | ≥ 0 |
 | 5 | `snapshotFrequency` | `number` | ❌ | `10` | Snapshots emitted per second | > 0, ≤ 60 Hz |
 
@@ -117,13 +117,26 @@ Uses a discriminated union based on `geometry.intersectionType`.
 
 #### 2.6.1 Fixed-Time Signal Controller
 
+Every duration below has a **canonical** field name (matching `FixedTimeSignalController`'s own naming, and the legacy live-dashboard config path) and, for three of them, one or two **legacy alias** field names retained for backward compatibility. All are accepted by both `shared/schemas/config.schema.json` and the typed `ControllerSection` Pydantic model (used by `POST /api/simulation/new`) — a canonical field is no longer silently dropped by the typed path the way it previously was when only the alias names were declared.
+
 | # | Field | Type | Required | Default | Description | Validation |
 |---|-------|------|----------|---------|-------------|------------|
-| 1 | `greenTime` | `number` | ❌ | `30` | Green phase duration for each direction pair | > 5, ≤ 120 seconds |
-| 2 | `yellowTime` | `number` | ❌ | `4` | Yellow (amber) phase duration | > 2, ≤ 8 seconds |
-| 3 | `allRedTime` | `number` | ❌ | `2` | All-red clearance interval | ≥ 0, ≤ 5 seconds |
-| 4 | `phaseSequence` | `array<string>` | ❌ | `["ns_green", "ns_yellow", "all_red", "ew_green", "ew_yellow", "all_red"]` | Ordered phase sequence | Valid phase names |
-| 5 | `offset` | `number` | ❌ | `0` | Phase offset from start of simulation | ≥ 0 seconds |
+| 1 | `straightRightDuration` (canonical) / `greenDuration` / `greenTime` (aliases) | `number` | ❌ | `30` | Green phase duration for the straight+right movement of each direction | > 5, ≤ 120 seconds |
+| 2 | `leftDuration` | `number` | ❌ | `5` | Protected left-turn green phase duration | > 0, ≤ 60 seconds |
+| 3 | `yellowDuration` (canonical) / `yellowTime` (alias) | `number` | ❌ | `4` | Yellow (amber) phase duration | > 2, ≤ 8 seconds |
+| 4 | `allRedDuration` (canonical) / `allRedTime` (alias) | `number` | ❌ | `2` | All-red clearance interval | ≥ 0, ≤ 5 seconds |
+| 5 | `phaseSequence` | `array<string>` | ❌ | `["ns_green", "ns_yellow", "all_red", "ew_green", "ew_yellow", "all_red"]` | Ordered phase sequence | See below |
+| 6 | `offset` | `number` | ❌ | `0` | Signal phase-coordination offset — shifts the initial phase cursor at simulation start (e.g. for multi-intersection green-wave coordination). **Not** a metrics/analysis warm-up period — see [08-communication-contract.md](08-communication-contract.md) and `simulation.warmupTime` (§2.1) for that. | ≥ 0 seconds |
+
+**Alias precedence** (when more than one name for the same duration is present in one config, `FixedTimeSignalController.__init__` resolves them in this order, highest priority first — later-checked aliases overwrite earlier ones if the canonical field is absent):
+- Green: `straightRightDuration` > `greenTime` > `greenDuration`
+- Yellow: `yellowDuration` > `yellowTime`
+- All-red: `allRedDuration` > `allRedTime`
+- Left: `leftDuration` only — no alias exists for this field.
+
+If none of a duration's names are present, the hardcoded fallback (30 / 5 / 4 / 2 above) is used — chosen to match the canonical/alias defaults exactly, so the effective duration is the same regardless of which alias (or none) a given config uses.
+
+**`phaseSequence` vocabulary:** each entry is either the literal string `"all_red"`, or `"<group>_<green|yellow>"` where `<group>` is one of `n`, `s`, `e`, `w` (a single approach) or `ns`/`sn`, `ew`/`we` (a paired, order-invariant approach group sharing one green — e.g. `ns_green` runs NORTH and SOUTH together). Green-phase duration uses `straightRightDuration` (after alias resolution above); yellow-phase duration uses `yellowDuration`; `all_red` uses `allRedDuration`. During a paired-group green phase, all three turn intents (including permissive left) are allowed for both directions in the group — left-turners crossing opposing straight traffic are arbitrated by `ConflictManager` (see [08-communication-contract.md](08-communication-contract.md)), not by a separate protected-left sub-phase. An entry that doesn't match this vocabulary raises a configuration error surfaced as `400 VALIDATION_ERROR` by `POST /api/v1/simulations` and `POST /api/simulation/new`. When `phaseSequence` is omitted entirely, the controller instead builds its original one-direction-at-a-time cycle (straight+right green → protected left green → yellow → all-red, repeated for N→S→E→W) — see the note on default-consistency below.
 
 #### 2.6.2 Roundabout Controller
 

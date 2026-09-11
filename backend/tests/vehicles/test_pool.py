@@ -1,4 +1,4 @@
-from src.core.enums import Direction, VehicleState
+from src.core.enums import Direction, TurnIntent, VehicleState
 from src.roads.lane import Lane
 from src.roads.network import RoadNetwork
 from src.vehicles.pool import VehiclePool
@@ -194,3 +194,43 @@ def test_collision_audit_still_skips_ordinary_parallel_lanes() -> None:
     pool._collision_audit()
 
     assert pool.collision_count == 0
+
+
+def test_attempt_lane_change_handles_unregistered_direction_gracefully() -> None:
+    """Regression for narrowing pool.py's _attempt_lane_change from a bare
+    `except Exception` to (KeyError, ValueError, IndexError): a vehicle
+    whose approach direction isn't registered on the network (a genuine,
+    expected "lane data unavailable" condition — network.get_incoming_
+    approach() raises KeyError, matching the pattern used throughout
+    roundabout.py/router.py) must be handled gracefully, not crash the
+    caller, exactly as the previous bare except did for this case."""
+    lane = Lane("n_in_0", 0.0, 0.0, 0.0, 40.0)
+    vehicle = Vehicle(
+        "v1",
+        4.0,
+        2.0,
+        10.0,
+        [lane],
+        start_position=0.0,
+        turn_intent=TurnIntent.STRAIGHT,
+    )
+
+    class BareNetwork:
+        """A network with no approaches registered at all, so
+        get_incoming_approach() raises KeyError for every direction."""
+
+        def get_incoming_approach(self, direction: Direction) -> None:
+            raise KeyError(direction)
+
+    class DummyEngine:
+        def __init__(self) -> None:
+            self.network = BareNetwork()
+
+    pool = VehiclePool()
+    pool.add_vehicle(vehicle)
+
+    # Must not raise — the narrowed except must still catch this.
+    pool._attempt_lane_change(vehicle, current_time=100.0, engine=DummyEngine())
+
+    # No lane change occurred (network had nothing to offer).
+    assert vehicle.lane is lane
