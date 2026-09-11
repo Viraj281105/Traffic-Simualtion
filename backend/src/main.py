@@ -9,6 +9,7 @@ import random
 import secrets
 import time
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -23,10 +24,14 @@ from fastapi import (
     WebSocketDisconnect,
 )
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
-from src.controllers.factory import build_tick_callback, create_controller
+from src.controllers.factory import (
+    build_tick_callback,
+    create_controller,
+    derive_signals_state,
+)
 from src.core.clock import Clock
 from src.core.config_models import ScenarioConfiguration
 from src.core.engine import SimulationEngine
@@ -98,6 +103,47 @@ def require_api_key(authorization: Optional[str] = Header(default=None)) -> None
             detail="Missing or invalid API key",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+
+# ── Uniform error envelope (docs/architecture/08-communication-contract.md
+# §6.1) ──────────────────────────────────────────────────────────────────
+# Every route in this file raises plain HTTPException(status_code, detail=
+# "..."), which FastAPI serializes by default as {"detail": "..."}. The
+# documented contract instead requires every error response to share one
+# consistent shape: {"error": {"code", "message", "details", "timestamp"}}.
+# This handler rewrites the response body only — it does not change status
+# codes, and it never runs for a 2xx response, so no successful response
+# structure is affected. The frontend does not inspect error response
+# bodies (it keys off HTTP status only — see useSimulationPolling.ts), so
+# this is safe to change without a frontend change.
+_STATUS_ERROR_CODES: Dict[int, str] = {
+    400: "VALIDATION_ERROR",
+    401: "UNAUTHORIZED",
+    404: "NOT_FOUND",
+    409: "INVALID_STATE_TRANSITION",
+    429: "SIMULATION_LIMIT_REACHED",
+    500: "INTERNAL_ERROR",
+}
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
+    message = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
+    code = _STATUS_ERROR_CODES.get(exc.status_code, "INTERNAL_ERROR")
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "error": {
+                "code": code,
+                "message": message,
+                "details": None,
+                "timestamp": datetime.now(timezone.utc)
+                .isoformat()
+                .replace("+00:00", "Z"),
+            }
+        },
+        headers=exc.headers,
+    )
 
 
 # Initialize Database
@@ -362,7 +408,11 @@ def _evict_completed_simulations() -> None:
         del simulations_db[sid]
 
 
-@app.post("/api/v1/simulations", dependencies=[Depends(require_api_key)])
+@app.post(
+    "/api/v1/simulations",
+    status_code=201,
+    dependencies=[Depends(require_api_key)],
+)
 def create_simulation(config: Dict[str, Any]) -> Dict[str, Any]:
     # Validate configuration against the schema (schema-level shape/bounds).
     try:
@@ -460,16 +510,27 @@ def control_simulation(sim_id: str, payload: ControlRequest) -> Dict[str, Any]:
     engine = sim["engine"]
     action = payload.action.lower()
 
-    if action == "start":
-        engine.start()
-    elif action == "pause":
-        engine.pause()
-    elif action == "resume":
-        engine.resume()
-    elif action == "stop":
-        engine.stop()
-    else:
+    if action not in ("start", "pause", "resume", "stop"):
         raise HTTPException(status_code=400, detail="Invalid action")
+
+    try:
+        if action == "start":
+            engine.start()
+        elif action == "pause":
+            engine.pause()
+        elif action == "resume":
+            engine.resume()
+        elif action == "stop":
+            engine.stop()
+    except RuntimeError as exc:
+        # engine.start() raises RuntimeError for an invalid transition
+        # (e.g. "start" on an already-running/completed simulation) —
+        # surface that as the documented 409 INVALID_STATE_TRANSITION
+        # (docs/architecture/08-communication-contract.md §6.2), not an
+        # unhandled 500. pause()/resume()/stop() have no invalid-transition
+        # case to catch here: they are documented no-ops outside their
+        # applicable state (see SimulationEngine).
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     return {"status": engine.status.value.lower()}
 
@@ -565,6 +626,24 @@ def get_simulation_report(sim_id: str, format: str = "csv") -> Any:  # noqa: A00
     )
 
 
+def _resolve_snapshot_interval(config: Dict[str, Any]) -> float:
+    """Resolves the WS streaming sleep interval from simulation.snapshotFrequency.
+
+    docs/architecture/08-communication-contract.md §5.1: snapshot frequency
+    is configurable via simulation.snapshotFrequency (default 10Hz),
+    hard-limited to [1, 60]Hz. CONFIG_SCHEMA/ScenarioConfiguration already
+    enforce that range on the way in; the clamp here is just a defensive
+    fallback for configs that bypassed that validation.
+    """
+    snapshot_frequency = config.get("simulation", {}).get("snapshotFrequency", 10.0)
+    try:
+        snapshot_frequency = float(snapshot_frequency)
+    except (TypeError, ValueError):
+        snapshot_frequency = 10.0
+    snapshot_frequency = min(max(snapshot_frequency, 1.0), 60.0)
+    return 1.0 / snapshot_frequency
+
+
 @app.websocket("/ws/v1/stream")
 async def websocket_stream(websocket: WebSocket, simulationId: str) -> None:  # noqa: N803
     await websocket.accept()
@@ -580,6 +659,7 @@ async def websocket_stream(websocket: WebSocket, simulationId: str) -> None:  # 
     config_id = sim["config_id"]
 
     builder = SnapshotBuilder(simulationId, config_id, engine, collector, controller)
+    snapshot_interval = _resolve_snapshot_interval(engine.config)
 
     try:
         while True:
@@ -591,8 +671,7 @@ async def websocket_stream(websocket: WebSocket, simulationId: str) -> None:  # 
             if snapshot["simulationStatus"] in ("completed", "error"):
                 break
 
-            # Stream at 10Hz (matching dt = 0.1)
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(snapshot_interval)
     except WebSocketDisconnect:
         pass
     except Exception as e:
@@ -611,9 +690,13 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "boundingRadius": 15.0,
     },
     "controller": {
-        "straightRightDuration": 15.0,
+        # Matches the canonical greenTime=30/yellowTime=4/allRedTime=2
+        # defaults (docs/architecture/06-scenario-configuration-contract.md,
+        # ControllerSection, CONFIG_SCHEMA) — see
+        # FixedTimeSignalController.__init__ for the same reconciliation.
+        "straightRightDuration": 30.0,
         "leftDuration": 5.0,
-        "yellowDuration": 3.0,
+        "yellowDuration": 4.0,
         "allRedDuration": 2.0,
     },
     "vehicleGeneration": {
@@ -767,8 +850,54 @@ def get_or_create_live_simulation() -> Dict[str, Any]:
     return session.live_sim_data
 
 
+_VALID_INTERSECTION_TYPES: list[str] = CONFIG_SCHEMA["properties"]["geometry"][
+    "properties"
+]["intersectionType"]["enum"]
+
+
+def _generate_random_seed() -> int:
+    """The single authority for auto-generating a live-dashboard random
+    seed, used wherever the dashboard needs a fresh seed because the
+    current one isn't user-defined (initial config, restarting a
+    completed live/dual run, resetting the dual comparison).
+
+    Was previously duplicated at each call site as a bare
+    `random.randint(1, 10000000)`, pulling from the shared global `random`
+    module. Matches the fix already applied in VehicleSpawner and
+    DualSimulationOrchestrator for the same reason: never touch the
+    shared global module's state for a simulation-scoped seed — use a
+    private, independently OS-seeded Random instance instead.
+    """
+    return random.Random().randint(1, 10_000_000)
+
+
 @app.post("/api/simulation/config", dependencies=[Depends(require_api_key)])
 def update_simulation_config(payload: Dict[str, Any]) -> Dict[str, Any]:
+    # Unlike /api/v1/simulations and /api/simulation/new, this endpoint
+    # builds its config dict directly from the raw payload without ever
+    # running it through CONFIG_SCHEMA or a Pydantic model. An unrecognized
+    # intersectionType previously passed through silently: the controller
+    # dict below is shaped by `== "fixed_time_signal"` (so any other value,
+    # typo or not, gets the roundabout-shaped controller dict), while
+    # create_controller() separately checks `== "roundabout"` (so anything
+    # else, including that same typo, builds a FixedTimeSignalController) —
+    # the two checks disagree for any value that is neither, so a typo
+    # silently ignored the user's submitted signal-timing parameters
+    # instead of failing. Reject it up front instead, consistent with how
+    # the versioned creation endpoints already validate this field.
+    intersection_type = payload.get("intersectionType")
+    if (
+        intersection_type is not None
+        and intersection_type not in _VALID_INTERSECTION_TYPES
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Invalid intersectionType '{intersection_type}'. "
+                f"Must be one of: {', '.join(_VALID_INTERSECTION_TYPES)}."
+            ),
+        )
+
     session = _current_session()
     # Shutdown existing simulation if running
     if session.live_sim_data["engine"] is not None:
@@ -793,10 +922,10 @@ def update_simulation_config(payload: Dict[str, Any]) -> Dict[str, Any]:
             seed_val = int(raw_seed)
             session.is_user_defined_seed = True
         except (ValueError, TypeError):
-            seed_val = random.randint(1, 10000000)
+            seed_val = _generate_random_seed()
             session.is_user_defined_seed = False
     else:
-        seed_val = random.randint(1, 10000000)
+        seed_val = _generate_random_seed()
         session.is_user_defined_seed = False
 
     # Compile the config dictionary based on user payload
@@ -860,8 +989,8 @@ def update_simulation_config(payload: Dict[str, Any]) -> Dict[str, Any]:
                 "innerRadius": 10.0,
                 "outerRadius": 20.0,
                 "circulatingLanes": 1,
-                "criticalGap": float(payload.get("criticalGap", 2.5)),
-                "followUpTime": float(payload.get("followUpTime", 1.5)),
+                "criticalGap": float(payload.get("criticalGap", 4.0)),
+                "followUpTime": float(payload.get("followUpTime", 2.5)),
                 "entrySpeed": 5.0,
                 "circulatingSpeed": 8.0,
             }
@@ -898,8 +1027,8 @@ def play_live_simulation() -> Dict[str, Any]:
     if engine.status == SimulationStatus.COMPLETED:
         # Re-randomize seed for the new run only if not explicitly user-defined
         if not session.is_user_defined_seed:
-            session.current_live_config["simulation"]["randomSeed"] = random.randint(
-                1, 10000000
+            session.current_live_config["simulation"]["randomSeed"] = (
+                _generate_random_seed()
             )
         session.live_sim_data["engine"] = None
         sim = get_or_create_live_simulation()
@@ -990,8 +1119,8 @@ def play_dual_simulation() -> Dict[str, Any]:
                 pass
         session.dual_sim_orchestrator = None
         if not session.is_user_defined_seed:
-            session.current_live_config["simulation"]["randomSeed"] = random.randint(
-                1, 10000000
+            session.current_live_config["simulation"]["randomSeed"] = (
+                _generate_random_seed()
             )
         orch = get_or_create_dual_orchestrator()
         orch.start()
@@ -1024,8 +1153,8 @@ def reset_dual_simulation() -> Dict[str, Any]:
     session.dual_sim_orchestrator = None
     # Generate a fresh shared random seed only if not user-defined
     if not session.is_user_defined_seed:
-        session.current_live_config["simulation"]["randomSeed"] = random.randint(
-            1, 10000000
+        session.current_live_config["simulation"]["randomSeed"] = (
+            _generate_random_seed()
         )
     orch = get_or_create_dual_orchestrator()
     return {
@@ -1304,12 +1433,17 @@ def reproduce_run_endpoint(run_id: str) -> Dict[str, Any]:
         collector = MetricCollector(run_config)
 
         def tick_callback() -> None:
-            controller.update(clock.time_step, engine.pool.active_vehicles)
+            # engine.step() already calls controller.update() once per tick
+            # (via engine.controller, set above) before running tick
+            # callbacks — calling it again here would advance the
+            # controller's phase/follow-up timing at double the rate of the
+            # original run, breaking reproduction. Only read its resulting
+            # state, exactly like build_tick_callback does for ordinary runs.
             collector.update(
                 clock.get_elapsed_time(),
                 engine.pool.active_vehicles,
                 engine.pool.exited_vehicles,
-                getattr(controller, "current_signals", {}),
+                derive_signals_state(controller),
             )
 
         engine.register_tick_callback(tick_callback)

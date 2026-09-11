@@ -308,6 +308,64 @@ def test_api_run_reproduce(test_db):
     assert second_data["seed"] == 54321
 
 
+def test_reproduce_drives_controller_at_the_same_rate_as_a_normal_run(
+    test_db, monkeypatch
+):
+    """The reproduce endpoint's own tick_callback must not call
+    controller.update() a second time: engine.step() already calls it once
+    per tick (via engine.controller), so a duplicate call would advance
+    signal phase / follow-up timing at double the original run's rate,
+    silently breaking reproduction fidelity."""
+    from src.controllers.fixed_time_signal import FixedTimeSignalController
+
+    call_count = 0
+    original_update = FixedTimeSignalController.update
+
+    def counting_update(self, delta_time, active_vehicles):
+        nonlocal call_count
+        call_count += 1
+        return original_update(self, delta_time, active_vehicles)
+
+    monkeypatch.setattr(FixedTimeSignalController, "update", counting_update)
+
+    client = TestClient(app)
+    repro_config = {
+        "simulation": {
+            "timeStep": 0.1,
+            "duration": 2.0,
+            "warmupTime": 0.0,
+            "randomSeed": 999,
+        },
+        "geometry": {"intersectionType": "fixed_time_signal"},
+        "controller": {
+            "greenDuration": 30,
+            "yellowDuration": 5,
+            "allRedDuration": 2,
+        },
+        "vehicleGeneration": {"stopSpeedThreshold": 0.1, "waitSpeedThreshold": 0.5},
+    }
+    with get_db_connection() as conn:
+        SimulationRunDAO.save(
+            conn,
+            run_id="repro_rate_test_run",
+            status="completed",
+            elapsed=2.0,
+            intersection_type="fixed_time_signal",
+            random_seed=999,
+            arrival_rate=0.3,
+            duration=2.0,
+            config=repro_config,
+            summary_metrics={},
+        )
+        conn.commit()
+
+    res = client.post("/api/v1/study/history/runs/repro_rate_test_run/reproduce")
+    assert res.status_code == 200
+
+    expected_steps = int(2.0 / 0.1)
+    assert call_count == expected_steps
+
+
 def test_user_seed_preservation(test_db):
     """Verifies that an explicit user seed is never clobbered when setting config or resetting."""
     client = TestClient(app)

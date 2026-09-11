@@ -86,7 +86,7 @@ def test_simulations_lifecycle_and_tick_callbacks() -> None:
         },
     }
     res_sig = client.post("/api/v1/simulations", json=cfg_signal)
-    assert res_sig.status_code == 200
+    assert res_sig.status_code == 201
     sig_sim_id = res_sig.json()["simulationId"]
 
     # Step engine to invoke tick_callback
@@ -160,6 +160,42 @@ def test_simulations_lifecycle_and_tick_callbacks() -> None:
     assert client.get("/api/v1/simulations/unknown_id/report").status_code == 404
 
 
+def test_dashboard_config_rejects_unknown_intersection_type() -> None:
+    """/api/simulation/config previously accepted any intersectionType
+    string silently: the controller-config shape it builds is chosen by
+    `== "fixed_time_signal"`, while create_controller() separately checks
+    `== "roundabout"` — the two checks disagree for anything else, so a
+    typo silently discarded the submitted signal-timing parameters instead
+    of failing. It must now reject unrecognized values with a 400, like
+    the versioned creation endpoints already do."""
+    res = client.post("/api/simulation/config", json={"intersectionType": "bogus"})
+    assert res.status_code == 400
+    error = res.json()["error"]
+    assert "bogus" in error["message"]
+    assert "fixed_time_signal" in error["message"]
+    assert "roundabout" in error["message"]
+
+    # A missing intersectionType still falls back to the documented default.
+    res_default = client.post("/api/simulation/config", json={})
+    assert res_default.status_code == 200
+
+
+def test_dashboard_config_default_signal_durations_match_canonical_contract() -> None:
+    """A fixed-time-signal dashboard config with no greenDuration/
+    yellowDuration must resolve to the same canonical defaults
+    (greenTime=30, yellowTime=4) as the versioned creation endpoints —
+    DEFAULT_CONFIG previously used mismatched values (15/3)."""
+    res = client.post(
+        "/api/simulation/config", json={"intersectionType": "fixed_time_signal"}
+    )
+    assert res.status_code == 200
+    live_sim = get_or_create_live_simulation()
+    controller = live_sim["controller"]
+    assert controller.straight_right_duration == 30.0
+    assert controller.yellow_duration == 4.0
+    assert controller.all_red_duration == 2.0
+
+
 def test_live_simulation_and_dual_simulation_endpoints() -> None:
     # 1. Get active vehicles
     act_res = client.get("/api/simulation/active-vehicles")
@@ -224,7 +260,7 @@ def test_websocket_streams() -> None:
         },
     }
     res = client.post("/api/v1/simulations", json=cfg)
-    assert res.status_code == 200
+    assert res.status_code == 201
     sim_id = res.json()["simulationId"]
 
     with client.websocket_connect(f"/ws/v1/stream?simulationId={sim_id}") as ws:

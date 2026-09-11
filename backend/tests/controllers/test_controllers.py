@@ -159,6 +159,25 @@ def test_base_controller_abstract_methods() -> None:
     dummy.reset()
 
 
+def test_fixed_time_signal_default_durations_match_canonical_contract() -> None:
+    """With no duration keys present at all, the controller's fallback
+    defaults must match the documented/canonical greenTime=30,
+    yellowTime=4, allRedTime=2
+    (docs/architecture/06-scenario-configuration-contract.md,
+    ControllerSection, CONFIG_SCHEMA) — not the previously-mismatched
+    straightRightDuration=15/yellowDuration=3 the controller used to fall
+    back to when neither alias was present."""
+    network = RoadNetwork()
+    network.setup_default_intersection(
+        approach_length=100.0, lane_width=3.5, lanes_per_approach=2
+    )
+    ctrl = FixedTimeSignalController({}, network)
+    assert ctrl.straight_right_duration == 30.0
+    assert ctrl.yellow_duration == 4.0
+    assert ctrl.all_red_duration == 2.0
+    assert ctrl.left_duration == 5.0
+
+
 def test_fixed_time_signal_legacy_config_and_lane_intents() -> None:
     network = RoadNetwork()
     network.setup_default_intersection(
@@ -294,3 +313,135 @@ def test_roundabout_circular_leader_detection() -> None:
     leader, gap = find_leader(veh_b, network=network, active_vehicles=[veh_a, veh_b])
     # It should identify veh_a as the leader
     assert leader is veh_a
+
+
+def test_roundabout_entry_speed_cap_and_restore() -> None:
+    """entrySpeed caps desired_speed only within the entry zone, and the
+    original desired_speed is restored once the vehicle is circulating."""
+    from src.roads.lane import Lane
+
+    network = RoadNetwork()
+    network.setup_default_intersection(
+        approach_length=100.0, lane_width=3.5, lanes_per_approach=1
+    )
+    config = {
+        "controller": {
+            "innerRadius": 10.0,
+            "outerRadius": 20.0,
+            "criticalGap": 4.0,
+            "followUpTime": 0.0,
+            "entrySpeed": 5.0,
+            "circulatingSpeed": 8.0,
+        }
+    }
+    controller = RoundaboutController(config, network)
+
+    lane = network.get_incoming_approach(Direction.NORTH).get_lanes()[0]
+
+    # Far from the entry: desired_speed is untouched.
+    veh = Vehicle(
+        "v_entry",
+        length=4.0,
+        width=2.0,
+        desired_speed=15.0,
+        route=[lane],
+        start_position=0.0,
+        initial_speed=10.0,
+    )
+    lane.add_vehicle(veh)
+    controller.update(0.1, [veh])
+    assert veh.desired_speed == 15.0
+
+    # Within the entry zone: desired_speed is capped at entrySpeed.
+    veh.position = lane.length - 2.0
+    controller.update(0.1, [veh])
+    assert veh.desired_speed == 5.0
+
+    # A slower vehicle's desired_speed is left alone (cap, not a floor).
+    veh_slow = Vehicle(
+        "v_slow",
+        length=4.0,
+        width=2.0,
+        desired_speed=3.0,
+        route=[lane],
+        start_position=lane.length - 1.0,
+        initial_speed=3.0,
+    )
+    lane.add_vehicle(veh_slow)
+    controller.update(0.1, [veh, veh_slow])
+    assert veh_slow.desired_speed == 3.0
+
+    # Once circulating, the original desired_speed is restored.
+    lane.remove_vehicle(veh)
+    conn_lane = Lane("conn_n_0_straight", 0.0, 0.0, 10.0, 0.0)
+    veh.lane = conn_lane
+    controller.update(0.1, [veh, veh_slow])
+    assert veh.desired_speed == 15.0
+
+
+def test_roundabout_follow_up_time_gates_consecutive_entries() -> None:
+    """followUpTime holds the next vehicle at a lane's entry for a spacing
+    period after the previous vehicle from that lane completed its entry
+    (actually left the lane), even with no conflicting circulating
+    traffic."""
+    network = RoadNetwork()
+    network.setup_default_intersection(
+        approach_length=100.0, lane_width=3.5, lanes_per_approach=1
+    )
+    config = {
+        "controller": {
+            "innerRadius": 10.0,
+            "outerRadius": 20.0,
+            "criticalGap": 4.0,
+            "followUpTime": 2.0,
+            "entrySpeed": 5.0,
+            "circulatingSpeed": 8.0,
+        }
+    }
+    controller = RoundaboutController(config, network)
+    lane = network.get_incoming_approach(Direction.NORTH).get_lanes()[0]
+
+    veh_a = Vehicle(
+        "v_a",
+        length=4.0,
+        width=2.0,
+        desired_speed=5.0,
+        route=[lane],
+        start_position=lane.length - 1.0,
+        initial_speed=5.0,
+    )
+    lane.add_vehicle(veh_a)
+
+    # No circulating traffic, so the gap-acceptance check alone clears
+    # veh_a to enter.
+    controller.update(0.1, [veh_a])
+    assert lane.virtual_obstacle is None
+
+    # veh_a actually crosses into the roundabout (leaves this lane), and
+    # veh_b arrives right behind it at the entry.
+    lane.remove_vehicle(veh_a)
+    veh_b = Vehicle(
+        "v_b",
+        length=4.0,
+        width=2.0,
+        desired_speed=5.0,
+        route=[lane],
+        start_position=lane.length - 1.0,
+        initial_speed=5.0,
+    )
+    lane.add_vehicle(veh_b)
+
+    # veh_a's departure is only detected at the end of this tick (after
+    # this tick's yield decision is made from the pre-departure state), so
+    # veh_b is still cleared on this one tick.
+    controller.update(0.1, [veh_b])
+    assert lane.virtual_obstacle is None
+
+    # From the next tick on, follow_up_time (measured from veh_a's
+    # detected departure) gates veh_b even with no circulating conflict.
+    controller.update(0.1, [veh_b])
+    assert lane.virtual_obstacle is not None
+
+    # After follow_up_time has elapsed, entry is clear again.
+    controller.update(2.5, [veh_b])
+    assert lane.virtual_obstacle is None

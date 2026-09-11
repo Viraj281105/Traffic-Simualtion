@@ -1,11 +1,16 @@
 import math
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Set
 
 from src.controllers.base import BaseController
 from src.controllers.virtual_obstacle import VirtualObstacle
 from src.core.enums import Direction, TurnIntent
 from src.roads.network import RoadNetwork
 from src.vehicles.vehicle import Vehicle
+
+# Distance from the entry point (lane end) within which a vehicle is
+# considered "at the roundabout entry" for both the entrySpeed cap and
+# follow-up-time bookkeeping below.
+_ENTRY_ZONE: float = 5.0
 
 
 class RoundaboutController(BaseController):
@@ -19,16 +24,33 @@ class RoundaboutController(BaseController):
         self.inner_radius: float = ctrl_cfg.get("innerRadius", 10.0)
         self.outer_radius: float = ctrl_cfg.get("outerRadius", 20.0)
         self.circulating_lanes: int = ctrl_cfg.get("circulatingLanes", 1)
-        self.critical_gap: float = ctrl_cfg.get("criticalGap", 2.5)
-        self.follow_up_time: float = ctrl_cfg.get("followUpTime", 1.5)
+        self.critical_gap: float = ctrl_cfg.get("criticalGap", 4.0)
+        self.follow_up_time: float = ctrl_cfg.get("followUpTime", 2.5)
         self.entry_speed: float = ctrl_cfg.get("entrySpeed", 5.0)
         self.circulating_speed: float = ctrl_cfg.get("circulatingSpeed", 8.0)
 
         self.time_in_current_state: float = 0.0
+        # Per-lane timestamp (in self.time_in_current_state units) of the
+        # most recent tick a vehicle was observed completing its entry from
+        # that lane — used to enforce follow_up_time spacing between
+        # consecutive entries (see update()).
+        self._last_entry_time: Dict[str, float] = {}
+        # Per-lane set of vehicle_ids that were within _ENTRY_ZONE as of
+        # the previous tick, so a "completed entry" can be detected as a
+        # vehicle that was in the zone and has now left the lane entirely
+        # (rather than merely still sitting in the zone).
+        self._prev_zone_occupants: Dict[str, Set[str]] = {}
+        # Per-vehicle-id desired_speed as it was before the entrySpeed cap
+        # was first applied, so it can be restored once the vehicle starts
+        # circulating (see update()).
+        self._pre_entry_desired_speed: Dict[str, float] = {}
         self.reset()
 
     def reset(self) -> None:
         self.time_in_current_state = 0.0
+        self._last_entry_time = {}
+        self._prev_zone_occupants = {}
+        self._pre_entry_desired_speed = {}
         # Clear all entry obstacles initially
         for d in Direction:
             try:
@@ -48,6 +70,27 @@ class RoundaboutController(BaseController):
             for v in active_vehicles
             if v.lane is not None and v.lane.lane_id.startswith("conn")
         ]
+
+        # entrySpeed: "Maximum speed at roundabout entry" — cap each
+        # vehicle's desired speed while it is within _ENTRY_ZONE of an
+        # incoming lane's entry point, so the IDM free-road term brings it
+        # down to entry_speed before it circulates. Restore the vehicle's
+        # original desired speed once it is actually circulating, so this
+        # only governs the entry itself, not the rest of its journey.
+        for v in active_vehicles:
+            if v.lane is None:
+                continue
+            lane_id = v.lane.lane_id.lower()
+            if lane_id.startswith("conn"):
+                original_speed = self._pre_entry_desired_speed.pop(v.vehicle_id, None)
+                if original_speed is not None:
+                    v.desired_speed = original_speed
+            elif "_in_" in lane_id and (v.lane.length - v.position) <= _ENTRY_ZONE:
+                original_speed = self._pre_entry_desired_speed.get(v.vehicle_id)
+                if original_speed is None:
+                    original_speed = v.desired_speed
+                    self._pre_entry_desired_speed[v.vehicle_id] = original_speed
+                v.desired_speed = min(original_speed, self.entry_speed)
 
         for d in Direction:
             try:
@@ -135,10 +178,46 @@ class RoundaboutController(BaseController):
                                         should_yield = True
                                         break
 
+                    # followUpTime: "Time between consecutive entering
+                    # vehicles" — even once a circulating gap is accepted,
+                    # hold the lane for follow_up_time after the previous
+                    # entry from it, modeling the minimum headway queued
+                    # vehicles need between each other (HCM roundabout
+                    # capacity: critical gap + follow-up time).
+                    last_entry = self._last_entry_time.get(lane.lane_id)
+                    if last_entry is not None and (
+                        self.time_in_current_state - last_entry
+                        < self.follow_up_time
+                    ):
+                        should_yield = True
+
                     if should_yield:
                         lane.virtual_obstacle = VirtualObstacle(position=lane.length)
                     else:
                         lane.virtual_obstacle = None
+
+                    # Detect a completed entry: a vehicle that was within
+                    # _ENTRY_ZONE last tick and has now left this lane
+                    # entirely (crossed into the roundabout). Using actual
+                    # departure from the lane — rather than mere continued
+                    # presence in the zone — avoids a vehicle re-arming its
+                    # own follow-up timer every tick it is held waiting
+                    # right at the entry, which would otherwise deadlock it.
+                    current_lane_vehicle_ids = {
+                        v.vehicle_id for v in lane.get_vehicles()
+                    }
+                    prev_zone_occupants = self._prev_zone_occupants.get(
+                        lane.lane_id, set()
+                    )
+                    if prev_zone_occupants - current_lane_vehicle_ids:
+                        self._last_entry_time[lane.lane_id] = (
+                            self.time_in_current_state
+                        )
+                    self._prev_zone_occupants[lane.lane_id] = {
+                        v.vehicle_id
+                        for v in lane.get_vehicles()
+                        if (lane.length - v.position) <= _ENTRY_ZONE
+                    }
             except KeyError:
                 pass
 

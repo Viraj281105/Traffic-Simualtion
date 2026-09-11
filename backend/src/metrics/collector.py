@@ -1,3 +1,4 @@
+import itertools
 import math
 from typing import Any, Dict, List
 
@@ -12,15 +13,15 @@ from src.metrics.definitions.fairness import calculate_directional_fairness
 from src.metrics.definitions.idle_loss import calculate_idle_loss_tick
 from src.metrics.definitions.queue_length import get_current_queue_lengths
 from src.metrics.definitions.speed_variance import calculate_speed_variance_index
-from src.metrics.definitions.stop_count import (
-    calculate_average_stops,
-    update_vehicle_stops,
-)
+from src.metrics.definitions.stop_count import update_vehicle_stops
 from src.metrics.definitions.throughput import (
     calculate_throughput,
     calculate_throughput_rate,
 )
-from src.metrics.definitions.travel_time import calculate_travel_time_reliability
+from src.metrics.definitions.travel_time import (
+    MIN_RELIABLE_SAMPLE_SIZE,
+    calculate_travel_time_reliability,
+)
 from src.metrics.definitions.wait_time import calculate_average_wait_time
 from src.metrics.efficiency import calculate_master_efficiency_score
 from src.vehicles.vehicle import Vehicle
@@ -43,7 +44,6 @@ class MetricCollector:
         self.reset()
 
     def reset(self) -> None:
-        self.total_stops_in_warmup: int = 0
         self.idle_loss_ticks: int = 0
         self.total_ticks_post_warmup: int = 0
         self.congestion_recovery_time: float = 0.0
@@ -52,6 +52,18 @@ class MetricCollector:
 
         # Maintain list of queue lengths over time to compute time-average and max
         self.queue_history: List[Dict[str, int]] = []
+
+        # Per-tick speed CV history (see speed_variance.py) for computing
+        # the time-averaged SVI = (1/T) * sum(CV(t)) per the metric contract.
+        self.speed_cv_history: List[float] = []
+
+        # Per-vehicle wait_time/stop_count snapshot taken at the moment
+        # warmup ends, so a vehicle already active at that point doesn't
+        # have its pre-warmup wait/stops leak into post-warmup averages
+        # (mirrors how averageDelay clips via effective_spawn_t below).
+        self._warmup_baseline_wait: Dict[str, float] = {}
+        self._warmup_baseline_stops: Dict[str, int] = {}
+        self._warmup_baseline_captured: bool = False
 
     def update(
         self,
@@ -67,9 +79,17 @@ class MetricCollector:
 
         # Discard metrics check during warmup
         if current_time < self.warmup_time:
-            # Track stops during warmup to exclude them from post-warmup metrics
-            self.total_stops_in_warmup = sum(v.stop_count for v in exited_vehicles)
             return
+
+        if not self._warmup_baseline_captured:
+            # First post-warmup tick: snapshot the cumulative wait_time/
+            # stop_count of every vehicle still active right now, so their
+            # pre-warmup contribution can be subtracted later in
+            # get_metrics() for any of them that exits post-warmup.
+            for v in active_vehicles:
+                self._warmup_baseline_wait[v.vehicle_id] = v.wait_time
+                self._warmup_baseline_stops[v.vehicle_id] = v.stop_count
+            self._warmup_baseline_captured = True
 
         # Increment post-warmup simulation ticks count
         self.total_ticks_post_warmup += 1
@@ -79,6 +99,15 @@ class MetricCollector:
             avg_speed = sum(v.speed for v in active_vehicles) / len(active_vehicles)
             if avg_speed > self.wait_speed_threshold:
                 self.service_ticks += 1
+
+        # Speed Variance Index: accumulate this tick's CV(t) into the
+        # history used for the time-averaged SVI in get_metrics(). Per the
+        # metric contract, ticks with fewer than 2 active vehicles are
+        # skipped entirely rather than contributing a value.
+        if len(active_vehicles) >= 2:
+            self.speed_cv_history.append(
+                calculate_speed_variance_index(active_vehicles)
+            )
 
         # Track idle opportunity loss
         if calculate_idle_loss_tick(
@@ -111,6 +140,20 @@ class MetricCollector:
             if (v.exit_time is not None and v.exit_time >= self.warmup_time)
             or (v.exit_time is None and v.spawn_time >= self.warmup_time)
         ]
+
+        # V_spawned for criticalSaturationVolume (metric contract
+        # §4.2: "total vehicles spawned (post-warmup)") — distinct from
+        # totalVehiclesSpawned below, which is the all-time spawner count
+        # and has no documented warmup exclusion. Exited vehicles are never
+        # evicted from the pool (see VehiclePool), so active+exited here is
+        # every vehicle spawned so far, letting this be derived directly
+        # from spawn_time rather than requiring separate tick-level
+        # tracking.
+        post_warmup_spawned_count = sum(
+            1
+            for v in itertools.chain(active_vehicles, exited_vehicles)
+            if getattr(v, "spawn_time", 0.0) >= self.warmup_time
+        )
 
         # Calculate current queue lengths
         curr_queues = get_current_queue_lengths(
@@ -215,11 +258,37 @@ class MetricCollector:
             p95_delay = 0.0
             sd_delay = 0.0
 
-        # Compute total stops post-warmup (excluding stops incurred during warmup)
-        total_stops_exited = max(
-            0,
-            sum(v.stop_count for v in post_warmup_exited) - self.total_stops_in_warmup,
+        # average_wait_time / averageStopsPerVehicle / totalStops: subtract
+        # each vehicle's warmup-boundary baseline (captured in update()) so
+        # a vehicle that was already active when warmup ended doesn't have
+        # its pre-warmup wait time / stops counted here — mirrors how
+        # avg_delay above clips via effective_spawn_t. Vehicles that
+        # spawned after warmup have no baseline entry (default 0), so
+        # their full wait_time/stop_count counts as-is.
+        #
+        # totalStops previously subtracted a single scalar
+        # (stops of vehicles that had *already exited* during warmup) from
+        # the sum of stops of `post_warmup_exited` vehicles — a set that,
+        # by construction, never includes those already-exited vehicles.
+        # That scalar had no relationship to the quantity it was subtracted
+        # from. Using the same per-vehicle baseline clip as
+        # averageStopsPerVehicle makes totalStops == sum(clipped_stops),
+        # i.e. consistent with avg_stops_per_vehicle * len(post_warmup_exited).
+        clipped_waits: List[float] = []
+        clipped_stops: List[int] = []
+        for v in post_warmup_exited:
+            baseline_wait = self._warmup_baseline_wait.get(v.vehicle_id, 0.0)
+            baseline_stops = self._warmup_baseline_stops.get(v.vehicle_id, 0)
+            clipped_waits.append(max(0.0, v.wait_time - baseline_wait))
+            clipped_stops.append(max(0, v.stop_count - baseline_stops))
+
+        avg_wait_time = (
+            round(sum(clipped_waits) / len(clipped_waits), 2) if clipped_waits else 0.0
         )
+        avg_stops_per_vehicle = (
+            round(sum(clipped_stops) / len(clipped_stops), 2) if clipped_stops else 0.0
+        )
+        total_stops_exited = sum(clipped_stops)
 
         # Idle opportunity loss
         idle_loss = 0.0
@@ -237,8 +306,20 @@ class MetricCollector:
             post_warmup_exited, current_time, warmup_time=self.warmup_time
         )
 
+        # Time-averaged Speed Variance Index: SVI = (1/T) * sum(CV(t)) over
+        # post-warmup ticks with >=2 active vehicles (see update() above).
+        speed_variance_index = (
+            round(sum(self.speed_cv_history) / len(self.speed_cv_history), 3)
+            if self.speed_cv_history
+            else 0.0
+        )
+
+        travel_time_reliability, travel_time_sample_size = (
+            calculate_travel_time_reliability(post_warmup_exited)
+        )
+
         base_metrics = {
-            "averageWaitTime": calculate_average_wait_time(post_warmup_exited),
+            "averageWaitTime": avg_wait_time,
             "averageDelay": avg_delay,
             "medianDelay": med_delay,
             "minDelay": min_delay,
@@ -253,11 +334,11 @@ class MetricCollector:
             "activeAverageQueueLength": active_avg_q,
             "queueStdDev": sd_q,
             "totalStops": total_stops_exited,
-            "averageStopsPerVehicle": calculate_average_stops(post_warmup_exited),
-            "speedVarianceIndex": calculate_speed_variance_index(active_vehicles),
-            "travelTimeReliability": calculate_travel_time_reliability(
-                post_warmup_exited
-            ),
+            "averageStopsPerVehicle": avg_stops_per_vehicle,
+            "speedVarianceIndex": speed_variance_index,
+            "travelTimeReliability": travel_time_reliability,
+            "travelTimeReliabilityLowSampleSize": travel_time_sample_size
+            < MIN_RELIABLE_SAMPLE_SIZE,
             "idleOpportunityLoss": idle_loss,
             "directionalFairnessIndex": calculate_directional_fairness(
                 post_warmup_exited
@@ -275,7 +356,10 @@ class MetricCollector:
                 1,
             ),
             "criticalSaturationVolume": calculate_critical_saturation_volume(
-                self.config, throughput_val, throughput_rate_val, total_spawned
+                self.config,
+                throughput_val,
+                throughput_rate_val,
+                post_warmup_spawned_count,
             ),
         }
         base_metrics["masterEfficiencyScore"] = calculate_master_efficiency_score(

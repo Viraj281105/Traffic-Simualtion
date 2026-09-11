@@ -99,3 +99,38 @@ def test_vehicle_pool_collision_audit_separation() -> None:
         pool2.add_vehicle(v)
     pool2._collision_audit()
     assert pool2.collision_count == 0
+
+
+def test_vehicle_pool_collision_debounced_across_ticks() -> None:
+    """A persistent overlap between the same two vehicles is one collision
+    event (counted once on the tick it starts), not one per tick the
+    overlap continues; a fresh overlap after separation is a new,
+    separately counted event."""
+    lane_a = Lane("lane_a", 0.0, 0.0, 10.0, 0.0)
+    lane_b = Lane("lane_b", 5.0, -5.0, 5.0, 5.0)
+
+    va = Vehicle("va", 4.0, 2.0, 5.0, [lane_a], start_position=5.0, initial_speed=5.0)
+    vb = Vehicle("vb", 4.0, 2.0, 2.0, [lane_b], start_position=5.5, initial_speed=2.0)
+
+    pool = VehiclePool()
+    pool.add_vehicle(va)
+    pool.add_vehicle(vb)
+
+    pool._collision_audit()
+    assert pool.collision_count == 1
+
+    # Overlap persists (positions unchanged) across further ticks — no
+    # additional collision should be counted for the same ongoing overlap.
+    pool._collision_audit()
+    pool._collision_audit()
+    assert pool.collision_count == 1
+
+    # Vehicles separate (vb moves well outside the collision-audit radius).
+    vb.position = 0.0
+    pool._collision_audit()
+    assert pool.collision_count == 1
+
+    # Vehicles overlap again: this is a distinct, new collision event.
+    vb.position = 5.5
+    pool._collision_audit()
+    assert pool.collision_count == 2

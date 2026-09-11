@@ -56,7 +56,7 @@ def test_simulation_history() -> None:
     }
     # 1. Create simulation
     response = client.post("/api/v1/simulations", json=config)
-    assert response.status_code == 200
+    assert response.status_code == 201
     sim_id = response.json()["simulationId"]
 
     # 2. Control start
@@ -82,3 +82,28 @@ def test_simulation_history() -> None:
     frame_res = client.get(f"/api/v1/simulations/{sim_id}/history/{first_tick}")
     assert frame_res.status_code == 200
     assert frame_res.json()["tick"] == first_tick
+
+
+def test_generate_random_seed_does_not_consume_shared_global_random_state() -> None:
+    """_generate_random_seed() is the single authority for the live
+    dashboard's auto-generated seeds — previously duplicated as a bare
+    `random.randint(1, 10000000)` at 5 separate call sites in main.py, all
+    drawing from the shared global `random` module. It must instead use a
+    private Random instance, like VehicleSpawner and
+    DualSimulationOrchestrator already do for the same reason (see their
+    own fixes): otherwise generating a dashboard seed silently perturbs
+    the global module's sequence for any other code relying on it."""
+    import random as random_module
+
+    from src.main import _generate_random_seed
+
+    random_module.seed(12345)
+    expected_sequence = [random_module.random() for _ in range(5)]
+
+    random_module.seed(12345)
+    actual_sequence = []
+    for _ in range(5):
+        _generate_random_seed()
+        actual_sequence.append(random_module.random())
+
+    assert actual_sequence == expected_sequence

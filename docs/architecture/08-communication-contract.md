@@ -279,6 +279,19 @@ stateDiagram-v2
 
 ## 4. WebSocket Protocol
 
+> **Audited 2026-09 against `backend/src/main.py`:** the protocol actually
+> implemented is deliberately simpler than an earlier draft of this
+> section described. There is no message envelope, no `CONNECTION_ACK` /
+> `STATUS_CHANGE` / `SIMULATION_COMPLETE` / `FINAL_METRICS` / `HEARTBEAT`
+> event stream, and the socket does not accept any client→server control
+> messages — control happens exclusively over the REST control endpoint
+> (§3.5). Nothing in the codebase (backend or frontend) implements that
+> richer envelope/event-taxonomy version; [../operations.md](../operations.md)
+> has tracked the real behavior throughout, and this section now matches it
+> rather than describing an unbuilt design. If that richer protocol is
+> wanted, it should be scoped as a new feature (see §8 Future
+> Extensibility) rather than assumed to already exist.
+
 ### 4.1 Connection
 
 **URL:** `ws://localhost:8000/ws/v1/stream?simulationId={simulationId}`
@@ -290,65 +303,66 @@ sequenceDiagram
     participant BE as Backend
 
     FE->>BE: WebSocket Connect /ws/v1/stream?simulationId={simId}
-    BE-->>FE: CONNECTION_ACK
-    Note over FE,BE: Connection established
+    Note over FE,BE: Server accepts and starts streaming immediately —<br/>no acknowledgement message is sent
 
-    BE-->>FE: SNAPSHOT (tick 0)
-    BE-->>FE: SNAPSHOT (tick 1)
-    BE-->>FE: SNAPSHOT (tick 2)
-    Note over FE,BE: Streaming at configured frequency
+    BE-->>FE: Snapshot (tick 0)
+    BE-->>FE: Snapshot (tick 1)
+    BE-->>FE: Snapshot (tick 2)
+    Note over FE,BE: One JSON snapshot per message, at simulation.snapshotFrequency<br/>(default 10Hz); use the REST control endpoint to pause/resume/stop
 
-    FE->>BE: PLAYBACK_CONTROL (pause)
-    BE-->>FE: STATUS_CHANGE (paused)
-
-    FE->>BE: PLAYBACK_CONTROL (resume)
-    BE-->>FE: STATUS_CHANGE (running)
-    BE-->>FE: SNAPSHOT (tick N)
-    Note over FE,BE: Streaming resumes
-
-    BE-->>FE: SIMULATION_COMPLETE
-    BE-->>FE: FINAL_METRICS
-    Note over FE,BE: Simulation ended
+    BE-->>FE: Snapshot (simulationStatus: "completed")
+    Note over FE,BE: Server closes the connection after the final snapshot
 
     FE->>BE: WebSocket Close
 ```
 
+If `simulationId` does not name a known simulation, the server accepts the
+connection and immediately closes it with WebSocket close code `1008`. An
+unhandled server-side error while streaming closes the connection with
+code `1011`.
+
 ### 4.2 Message Format
 
-All WebSocket messages use a standard envelope:
+Each server→client message is the raw JSON Snapshot object itself (see
+[05-snapshot-contract.md](./05-snapshot-contract.md)) — there is no
+`{type, timestamp, payload}` wrapper. The two fields every consumer needs
+are:
 
 ```json
 {
-  "type": "<EVENT_TYPE>",
-  "timestamp": "2026-07-23T14:30:00.123Z",
-  "payload": { "..." }
+  "simulationStatus": "running",
+  "tick": 42,
+  "...": "...see the snapshot contract for the full shape..."
 }
 ```
 
+The server stops streaming and closes the connection once
+`simulationStatus` is `"completed"` or `"error"` — that final snapshot is
+the last message sent.
+
 ### 4.3 Server → Client Events
 
-| Event Type | Description | Payload |
-|------------|-------------|---------|
-| `CONNECTION_ACK` | Connection established | `{ "simulationId": "...", "status": "...", "schemaVersion": "1.0.0" }` |
-| `SNAPSHOT` | Simulation state snapshot | Full Snapshot object (see Deliverable 5) |
-| `STATUS_CHANGE` | Simulation status changed | `{ "previousStatus": "...", "currentStatus": "...", "reason": "..." }` |
-| `SIMULATION_COMPLETE` | Simulation finished | `{ "simulationId": "...", "totalTicks": 3000, "totalVehicles": 185 }` |
-| `FINAL_METRICS` | Final metric results | Full Metric output object (see Deliverable 7) |
-| `ERROR` | Server-side error | `{ "code": "...", "message": "...", "recoverable": true/false }` |
-| `HEARTBEAT` | Keep-alive ping | `{ "serverTime": "..." }` |
+There is no separate event-type taxonomy: every message is a `Snapshot`.
+Callers distinguish "still running" from "finished" by reading
+`simulationStatus` on each snapshot, not by a message `type` field.
 
 ### 4.4 Client → Server Events
 
-| Event Type | Description | Payload |
-|------------|-------------|---------|
-| `PLAYBACK_CONTROL` | Control simulation playback | `{ "action": "pause" \| "resume" \| "stop" }` |
-| `SPEED_CHANGE` | Change playback speed | `{ "speed": 2.0 }` |
-| `SEEK` | Jump to specific tick (buffered snapshots only) | `{ "tick": 500 }` |
-| `HEARTBEAT_ACK` | Respond to heartbeat | `{}` |
+None. The server does not read or act on any message sent by the client
+on this socket; use `POST /api/v1/simulations/{id}/control` (§3.5) for
+pause/resume/stop instead.
 
 ---
 
 ## 5. Streaming Strategy
+
+> §5.1 (snapshot frequency) is implemented and enforced as described. §5.2
+> (tick-counting decimation), §5.3 (backpressure / `SNAPSHOT_DROPPED`) and
+> §5.4 (send-latest-on-reconnect) describe intended strategies that are not
+> implemented: the WS loop simply polls the current simulation state once
+> per `1/snapshotFrequency` seconds and sends whatever it finds, with no
+> tick-counting, drop-warning, or reconnect-specific behavior. A dropped
+> connection is treated like any other new connection — see §4.1.
 
 ### 5.1 Snapshot Frequency
 
@@ -415,13 +429,18 @@ All error responses follow a consistent format:
 
 ### 6.3 WebSocket Error Codes
 
-| Code | Description | Recoverable |
-|------|-------------|-------------|
-| `WS_SIMULATION_NOT_FOUND` | Simulation ID in connection URL is invalid | No |
-| `WS_SIMULATION_NOT_RUNNING` | Simulation is not in a streamable state | No |
-| `WS_SNAPSHOT_DROPPED` | Frames were dropped due to backpressure | Yes |
-| `WS_ENGINE_ERROR` | Simulation engine encountered an error | No |
-| `WS_INVALID_MESSAGE` | Client sent an unrecognized message type | Yes |
+> Not implemented as structured messages. `/ws/v1/stream` signals errors
+> only via the WebSocket close code and a plain-text close reason — it
+> never sends a `{code, message, recoverable}` JSON payload before
+> closing, and there is no distinct "not running" / "invalid message"
+> state (the socket streams whatever snapshot currently exists regardless
+> of simulation status, until that status is `"completed"` or `"error"`).
+> The two close codes actually used are:
+
+| WS Close Code | Meaning |
+|---------------|---------|
+| `1008` | `simulationId` in the connection URL does not exist |
+| `1011` | Unhandled server-side error while streaming |
 
 ---
 
