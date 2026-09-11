@@ -426,84 +426,63 @@ For $r_{\text{outer}} = 20$m: $A = \pi \times 400 \approx 1256.6 \text{ m}^2$
 
 ## 8. Metric Output Schema
 
-The final metric output (returned after simulation completion) follows this structure:
+> **Audited 2026-09-11 against `backend/src/metrics/collector.py`
+> (`MetricCollector.get_metrics()`):** the nested
+> `{simulationId, ..., metrics: {name: {value, unit, ...}}}` envelope
+> previously shown here was never implemented and does not describe
+> current behavior. The actual output is a single **flat** dictionary —
+> camelCase key → raw numeric/primitive/dict value, with no per-metric
+> `{value, unit}` wrapper and no top-level `simulationId`/`metrics`
+> nesting. This exact dictionary is what `GET
+> /api/v1/simulations/{id}/metrics` returns, what
+> `GET /api/v1/simulations/{id}/report?format=json` puts under
+> `finalMetrics`, and what every WebSocket snapshot carries as its running
+> metrics (see
+> [08-communication-contract.md §3.6](./08-communication-contract.md#36-get-metrics)).
+> Metric *names* in this dictionary don't always match the `Metric ID`
+> column in §7's summary table either (e.g. the footprint metric here is
+> keyed `spaceFootprintConsumed`, not `footprint`); the summary table
+> tracks conceptual metric identity, this section tracks the literal
+> output keys.
+
+The metrics output is a flat object, for example (abbreviated — not every key is shown):
 
 ```json
 {
-  "simulationId": "sim_a1b2c3d4",
-  "configId": "cfg_fixed_time_default",
-  "controllerType": "fixed_time_signal",
-  "simulationDuration": 300,
-  "effectiveDuration": 270,
-  "totalVehiclesProcessed": 185,
-  "computedAt": "2026-07-23T14:35:00.000Z",
-
-  "metrics": {
-    "average_wait_time": {
-      "value": 23.4,
-      "unit": "seconds",
-      "sampleSize": 185,
-      "confidence": "high"
-    },
-    "throughput": {
-      "value": 185,
-      "unit": "vehicles",
-      "rate": 41.1,
-      "rateUnit": "vehicles_per_minute"
-    },
-    "queue_length": {
-      "average": 4.25,
-      "maximum": 12,
-      "percentile95": 9,
-      "unit": "vehicles",
-      "perDirection": {
-        "north": { "average": 4.8, "maximum": 12 },
-        "south": { "average": 3.1, "maximum": 8 },
-        "east": { "average": 5.2, "maximum": 11 },
-        "west": { "average": 3.9, "maximum": 9 }
-      }
-    },
-    "stop_count": {
-      "value": 2.07,
-      "unit": "stops_per_vehicle",
-      "total": 383
-    },
-    "speed_variance": {
-      "value": 0.45,
-      "unit": "dimensionless"
-    },
-    "travel_time_reliability": {
-      "value": 1.8,
-      "unit": "dimensionless",
-      "median_travel_time": 25.0,
-      "p95_travel_time": 45.0
-    },
-    "idle_opportunity_loss": {
-      "value": 0.12,
-      "unit": "dimensionless"
-    },
-    "critical_saturation_volume": {
-      "value": 0.72,
-      "unit": "vehicles_per_second",
-      "confidence": "medium"
-    },
-    "directional_fairness": {
-      "value": 0.85,
-      "unit": "dimensionless",
-      "perDirection": {
-        "north": 25.1,
-        "south": 21.8,
-        "east": 28.3,
-        "west": 18.4
-      }
-    },
-    "footprint": {
-      "value": 196.0,
-      "unit": "square_meters"
-    }
-  }
+  "averageWaitTime": 23.4,
+  "averageDelay": 23.4,
+  "medianDelay": 20.1,
+  "minDelay": 0.0,
+  "maxDelay": 58.2,
+  "p95Delay": 45.0,
+  "delayStdDev": 9.8,
+  "throughput": 185,
+  "throughputRate": 41.1,
+  "currentQueueLengths": { "north": 2, "south": 1, "east": 0, "west": 3 },
+  "maxQueueLength": 12,
+  "averageQueueLength": 4.25,
+  "activeAverageQueueLength": 3.9,
+  "queueStdDev": 2.1,
+  "totalStops": 383,
+  "averageStopsPerVehicle": 2.07,
+  "speedVarianceIndex": 0.45,
+  "travelTimeReliability": 1.8,
+  "travelTimeReliabilityLowSampleSize": false,
+  "idleOpportunityLoss": 0.12,
+  "directionalFairnessIndex": 0.85,
+  "activeVehicleCount": 14,
+  "totalVehiclesSpawned": 200,
+  "averageTravelSpeed": 9.5,
+  "queueStabilityIndex": 0.8,
+  "congestionRecoveryTime": 12.0,
+  "spaceFootprintConsumed": 196.0,
+  "intersectionUtilization": 65.0,
+  "criticalSaturationVolume": 0.72,
+  "masterEfficiencyScore": 0.81
 }
 ```
+
+Every key here is produced directly by `MetricCollector.get_metrics()`; no separate metric envelope, units field, or per-metric confidence/sample-size metadata is added anywhere in the response pipeline. Units for each key are as documented per-metric in §2–§6 above.
 
 ---
 
