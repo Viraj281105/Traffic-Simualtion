@@ -192,5 +192,115 @@ def test_find_leader_roundabout_cross_lane_object_uses_angular_estimate() -> Non
     assert leader is candidate
     # avg_radius = (10+20)/2 = 15.0; diff = pi/2 - 0 = pi/2;
     # arc_dist = 15.0 * pi/2; gap = arc_dist - (2.0+2.0).
+    # These lanes have no circulating_radius set (they bypass
+    # RoadNetwork._get_or_create_connection_lane), so the fallback
+    # avg_radius formula is exactly what should apply here.
     expected_gap = 15.0 * (math.pi / 2.0) - 4.0
     assert gap == pytest.approx(expected_gap, abs=1e-9)
+
+
+def test_roundabout_connection_lane_stores_circulating_radius() -> None:
+    """Fix 2: RoadNetwork._get_or_create_connection_lane must store each
+    roundabout connection lane's own steady-state radius
+    (Lane.circulating_radius), derived from its lane index — not the ring's
+    overall average — so router.find_leader can use the lane-specific
+    value instead of the (now fallback-only) avg_radius estimate."""
+    from src.core.enums import Direction, TurnIntent
+    from src.roads.network import RoadNetwork
+
+    network = RoadNetwork()
+    network.setup_default_intersection(
+        approach_length=100.0,
+        lane_width=3.5,
+        lanes_per_approach=2,
+        is_roundabout=True,
+        inner_radius=10.0,
+        outer_radius=20.0,
+    )
+
+    lane_idx0 = network.generate_route(Direction.NORTH, 0, TurnIntent.STRAIGHT)[1]
+    lane_idx1 = network.generate_route(Direction.NORTH, 1, TurnIntent.STRAIGHT)[1]
+
+    # target_r(idx) = inner_r + (idx + 0.5) * (w_ring / total_in_lanes)
+    # w_ring = outer_r - inner_r = 10.0, total_in_lanes = 2
+    assert lane_idx0.circulating_radius == pytest.approx(12.5)
+    assert lane_idx1.circulating_radius == pytest.approx(17.5)
+
+    # Neither matches the ring-wide average (15.0) the old formula used —
+    # confirming this is genuinely lane-specific, not a relabeled average.
+    avg_radius = (10.0 + 20.0) / 2.0
+    assert lane_idx0.circulating_radius != pytest.approx(avg_radius)
+    assert lane_idx1.circulating_radius != pytest.approx(avg_radius)
+
+
+def test_find_leader_roundabout_cross_lane_object_uses_lane_specific_radius() -> None:
+    """Fix 2 regression: once a connection lane carries its own
+    circulating_radius (as real roundabout lanes do via network.py — see
+    test_roundabout_connection_lane_stores_circulating_radius above), the
+    cross-lane-object same-index gap must use THAT radius, not the ring's
+    overall average, and the result must differ from the old avg_radius-
+    only formula's value."""
+    import math
+
+    from src.roads.network import RoadNetwork
+
+    network = RoadNetwork()
+    network.is_roundabout = True
+    network.inner_radius = 10.0
+    network.outer_radius = 20.0
+
+    # Same coordinates as the angular-estimate test above (theta_self=0,
+    # theta_v=pi/2), but with an explicit circulating_radius matching
+    # target_r(0) for a 2-lane ring (12.5, per the test above) — as a real
+    # multi-lane roundabout's inner circulating lane would carry.
+    lane_a = Lane("conn_n_0_straight", 15.0, 0.0, -15.0, 0.0)
+    lane_a.circulating_radius = 12.5
+    vehicle = Vehicle("ego", 4.0, 2.0, 10.0, [lane_a], start_position=0.0)
+    vehicle.lane = lane_a
+
+    lane_b = Lane("conn_e_0_straight", 0.0, 15.0, 0.0, -15.0)
+    lane_b.circulating_radius = 12.5
+    candidate = Vehicle("other", 4.0, 2.0, 10.0, [lane_b], start_position=0.0)
+    candidate.lane = lane_b
+
+    leader, gap = find_leader(
+        vehicle, network=network, active_vehicles=[vehicle, candidate]
+    )
+
+    assert leader is candidate
+    # Correct: uses lane_a.circulating_radius (12.5), not avg_radius (15.0).
+    expected_gap = 12.5 * (math.pi / 2.0) - 4.0
+    assert gap == pytest.approx(expected_gap, abs=1e-9)
+
+    # Explicitly catch a regression back to the old avg_radius-only
+    # formula, which would have given a different (larger) gap here.
+    old_formula_gap = 15.0 * (math.pi / 2.0) - 4.0
+    assert gap != pytest.approx(old_formula_gap, abs=1e-9)
+
+
+def test_find_leader_roundabout_different_lane_index_not_matched() -> None:
+    """A candidate on a different circulating lane index must never be
+    treated as a Layer-1 leader, regardless of angular position — this
+    batch's radius fix must not affect that skip logic."""
+    from src.roads.network import RoadNetwork
+
+    network = RoadNetwork()
+    network.is_roundabout = True
+    network.inner_radius = 10.0
+    network.outer_radius = 20.0
+
+    lane_a = Lane("conn_n_0_straight", 15.0, 0.0, -15.0, 0.0)
+    vehicle = Vehicle("ego", 4.0, 2.0, 10.0, [lane_a], start_position=0.0)
+    vehicle.lane = lane_a
+
+    # Different lane index (1, not 0) — angularly "ahead" (theta=pi/2), but
+    # must be skipped entirely.
+    lane_b = Lane("conn_e_1_straight", 0.0, 15.0, 0.0, -15.0)
+    other = Vehicle("other", 4.0, 2.0, 10.0, [lane_b], start_position=0.0)
+    other.lane = lane_b
+
+    leader, gap = find_leader(
+        vehicle, network=network, active_vehicles=[vehicle, other]
+    )
+    assert leader is None
+    assert gap == float("inf")

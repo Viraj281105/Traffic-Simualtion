@@ -60,6 +60,14 @@ class Lane:
         # Optional virtual obstacle placed on this lane by a controller (e.g. stop-line)
         self.virtual_obstacle: Optional[Any] = None
 
+        # Steady-state circulating radius, set externally by
+        # RoadNetwork._get_or_create_connection_lane for a roundabout
+        # connection lane (None for every other lane, including
+        # non-roundabout connection lanes and hand-built lanes in tests).
+        # Valid only for the lane's steady-state middle arc, not its
+        # entry/exit transition zones — see router.find_leader.
+        self.circulating_radius: Optional[float] = None
+
     def get_point_at_distance(self, distance: float) -> Tuple[float, float]:
         dist = max(0.0, min(distance, self.length))
         if len(self.waypoints) == 2:
